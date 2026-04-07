@@ -2,10 +2,11 @@
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
     android:minHeight="200dp"
-    android:targetCellWidth="5"
+    android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:updatePeriodMillis="28800000"
     android:initialLayout="@layout/my_app_widget_layout"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:label="ATeam小工具" />
+    android:label="CTeam小工具"
+    android:previewImage="@drawable/widget_preview_c"/>
