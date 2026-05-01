@@ -81,9 +81,7 @@ class _HolidaysPageState extends State<HolidaysPage> with SingleTickerProviderSt
 
   Future<void> _forceImportPublicHolidays() async {
     try {
-      final raw = await rootBundle.loadString(
-        'assets/holidays/hk_holidays_2026.json',
-      );
+      final raw = await rootBundle.loadString('assets/holidays/hk_holidays_2026.json');
       final list = (jsonDecode(raw) as List<dynamic>).cast<Map<String, dynamic>>();
 
       final map = <String, Map<String, dynamic>>{};
@@ -201,18 +199,14 @@ class _HolidaysPageState extends State<HolidaysPage> with SingleTickerProviderSt
 
                 setState(() {
                   if (source == 'public') {
-                    // 編輯公眾假期（公眾假期不應新增，但保留編輯）
-                    if (isEditing) {
-                      if (dateKey != newDateKey) {
-                        publicHolidays.remove(dateKey);
-                      }
-                      publicHolidays[newDateKey] = {
-                        'name': newName,
-                        'color': selectedColor.value,
-                      };
-                    } else {
-                      // 唔會新增公眾假期
+                    // 編輯公眾假期
+                    if (isEditing && dateKey != newDateKey) {
+                      publicHolidays.remove(dateKey);
                     }
+                    publicHolidays[newDateKey] = {
+                      'name': newName,
+                      'color': selectedColor.value,
+                    };
                   } else {
                     // 自訂假期
                     if (isEditing && dateKey != newDateKey) {
@@ -296,7 +290,7 @@ class _HolidaysPageState extends State<HolidaysPage> with SingleTickerProviderSt
           ],
         ),
       ),
-      body: SafeArea(  // 👈 加入 SafeArea 避免被導航條遮擋
+      body: SafeArea(
         child: TabBarView(
           controller: _tabController,
           children: [

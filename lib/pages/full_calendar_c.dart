@@ -39,7 +39,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
   bool loading = true;
 
   Map<String, Map<String, dynamic>> teamLeave = {};
-  final Map<DateTime, String> customHolidays = {};
+  final Map<String, Map<String, dynamic>> customHolidays = {};
   Map<String, Map<String, dynamic>> publicHolidays = {};
 
   String myName = '';
@@ -92,8 +92,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
   Future<void> loadAppScriptUrl() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      cTeamSheetUrl =
-          prefs.getString('google_apps_script_url_C') ?? cTeamSheetUrlFallback;
+      cTeamSheetUrl = prefs.getString('google_apps_script_url_C') ?? cTeamSheetUrlFallback;
     } catch (e) {
       cTeamSheetUrl = cTeamSheetUrlFallback;
     }
@@ -102,7 +101,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
   Future<void> loadPublicHolidays() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(SPK_PUBLIC_HOLIDAYS_JSON) ?? prefs.getString('publicholidaysjson');
+      final raw = prefs.getString(SPK_PUBLIC_HOLIDAYS_JSON);
       if (raw != null && raw.trim().isNotEmpty) {
         final map = jsonDecode(raw) as Map<String, dynamic>;
         if (!mounted) return;
@@ -126,16 +125,13 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
   Future<void> loadCustomHolidays() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(SPK_CUSTOM_HOLIDAYS_JSON) ?? prefs.getString('customholidaysjson');
+      final raw = prefs.getString(SPK_CUSTOM_HOLIDAYS_JSON);
       if (raw == null || raw.trim().isEmpty) return;
 
       final map = jsonDecode(raw) as Map<String, dynamic>;
       customHolidays.clear();
       map.forEach((k, v) {
-        final d = DateTime.tryParse(k);
-        if (d != null) {
-          customHolidays[DateTime(d.year, d.month, d.day)] = v?.toString() ?? '';
-        }
+        customHolidays[k] = Map<String, dynamic>.from(v as Map);
       });
     } catch (e) {
       debugPrint('C load custom holidays error: $e');
@@ -256,6 +252,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
     await subscribeLeavesForVisibleRange();
   }
 
+  // ==================== 底部請假摘要列表 ====================
   Widget buildSummaryList() {
     final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
     final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
@@ -285,12 +282,36 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
         final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
         final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
 
-        final len = names.length > reasons.length ? names.length : reasons.length;
-        final pairs = List.generate(len, (i) {
-          final n = i < names.length ? names[i] : '';
-          final r = i < reasons.length ? reasons[i].trim() : '';
-          return '$n ($r)'.trim().replaceAll(RegExp(r'\(\s*\)$'), '');
-        }).where((s) => s.trim().isNotEmpty).toList();
+        // 合併相同類型重複的原因（例如 AL-AL 顯示為 AL x2）
+        final Map<String, Map<String, dynamic>> merged = {};
+        for (int i = 0; i < names.length; i++) {
+          final name = names[i];
+          String reason = i < reasons.length ? reasons[i].trim() : '';
+          if (reason.isEmpty) continue;
+
+          final parts = reason.split('-');
+          final firstType = parts.first;
+          final allSame = parts.every((p) => p == firstType);
+          final count = parts.length;
+
+          final key = '$name|$firstType';
+          if (allSame) {
+            merged[key] = {'name': name, 'type': firstType, 'days': count};
+          } else {
+            merged[key] = {'name': name, 'type': reason, 'days': 1};
+          }
+        }
+
+        final pairs = merged.values.map((m) {
+          final days = m['days'] as int;
+          final type = m['type'] as String;
+          final name = m['name'] as String;
+          if (days > 1) {
+            return '$name ($type x$days)';
+          } else {
+            return '$name ($type)';
+          }
+        }).toList();
 
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
@@ -305,6 +326,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
     );
   }
 
+  // 取消自己當日的待批請假（只限 pending 狀態）
   Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
     if (myName.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -355,6 +377,8 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
     );
   }
 
+  // ==================== 修正後的 openEditDialog ====================
+  // 點擊日期時彈出請假編輯對話框，需要正確顯示已有請假人名
   Future<void> openEditDialog(DateTime day) async {
     final dk = dateKey(day);
     final shift = shiftForDate(day);
@@ -362,27 +386,29 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
 
     final isNormalStaff = !widget.canFullEdit;
 
+    // 讀取當日已儲存的請假資料
     final existingNames = (existing['names'] as List<dynamic>?)?.cast<String>() ?? const [];
     final existingReasons = (existing['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
 
+    // ✅ 修正：直接根據現有資料初始化表格，不依賴權限判斷來隱藏已有的人名
     final initNames = List<String>.generate(5, (i) {
-      if (isNormalStaff) {
-        return (i == 0 && myName.isNotEmpty) ? myName : '';
+      // 優先顯示已儲存的人名
+      if (i < existingNames.length) {
+        return existingNames[i];
       }
-      return i < existingNames.length
-          ? existingNames[i]
-          : (i == 0 && myName.isNotEmpty ? myName : '');
+      // 第一行空白時，若為普通員工且已登入，預填自己個名方便請假
+      else if (i == 0 && myName.isNotEmpty && isNormalStaff) {
+        return myName;
+      }
+      return '';
     });
 
     final initReasons = List<String>.generate(5, (i) {
-      if (isNormalStaff) {
-        final idx = existingNames.indexOf(myName);
-        if (idx >= 0 && i == 0 && idx < existingReasons.length) {
-          return existingReasons[idx];
-        }
-        return '';
+      // 優先顯示已儲存的原因
+      if (i < existingReasons.length) {
+        return existingReasons[i];
       }
-      return i < existingReasons.length ? existingReasons[i] : '';
+      return '';
     });
 
     final initDays = List<int>.filled(5, 1);
@@ -408,6 +434,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
 
     Map<String, Map<String, dynamic>> sanitizedPlanByDate = {};
 
+    // 普通員工只能提交自己的請假，過濾掉其他人
     if (isNormalStaff) {
       result.planByDate.forEach((dateKeyStr, payload) {
         final names = (payload['names'] as List<dynamic>? ?? [])
@@ -559,6 +586,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
     );
   }
 
+  // 更新桌面小工具的快照資料
   Future<void> _updateWidgetSnapshot() async {
     final today = DateTime.now();
     final todayKey = dateKey(today);
@@ -625,6 +653,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
       ),
       body: Column(
         children: [
+          // 星期標題列
           Container(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             color: Colors.grey.shade200,
@@ -648,6 +677,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
             ),
           ),
           const SizedBox(height: 8),
+          // 月份切換
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -660,12 +690,13 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
             ],
           ),
           const SizedBox(height: 8),
+          // 日曆網格
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.all(4),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 7,
-                childAspectRatio: 0.42,
+                childAspectRatio: 0.52,
                 crossAxisSpacing: 2,
                 mainAxisSpacing: 2,
               ),
@@ -688,9 +719,9 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
                 final publicHolidayColor = publicHolidayColorValue != null
                     ? Color(publicHolidayColorValue as int)
                     : Colors.red.shade400;
-                final d0 = DateTime(day.year, day.month, day.day);
-                final isCustomHoliday = customHolidays.containsKey(d0);
-                final customLabel = customHolidays[d0];
+                final customHolidayData = customHolidays[dk];
+                final isCustomHoliday = customHolidayData != null;
+                final customLabel = customHolidayData?['name'] ?? '';
 
                 Color cellBg = shiftColor(shift);
                 if (isPast) cellBg = Colors.grey.shade200;
@@ -698,7 +729,12 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
                   cellBg = publicHolidayColor.withOpacity(0.2);
                 }
                 if (isCustomHoliday) {
-                  cellBg = Colors.orange.shade100;
+                  final colorValue = customHolidayData!['color'] as int?;
+                  if (colorValue != null) {
+                    cellBg = Color(colorValue).withOpacity(0.2);
+                  } else {
+                    cellBg = Colors.orange.shade100;
+                  }
                 }
 
                 final isToday = isSameDate(day, DateTime.now());
@@ -760,14 +796,14 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
                                   color: isPast ? Colors.grey.shade500 : Colors.black54,
                                 ),
                               ),
-                              if ((customLabel?.trim().isNotEmpty ?? false))
+                              if (customLabel.isNotEmpty)
                                 Text(
-                                  customLabel!.trim().length > 5
-                                      ? '${customLabel!.trim().substring(0, 5)}…'
-                                      : customLabel!.trim(),
+                                  customLabel.length > 5
+                                      ? '${customLabel.substring(0, 5)}…'
+                                      : customLabel,
                                   style: const TextStyle(
-                                    fontSize: 6.5,
-                                    color: Colors.orange,
+                                    fontSize: 8,
+                                    color: Colors.black,
                                     fontWeight: FontWeight.w600,
                                   ),
                                   maxLines: 1,
@@ -803,6 +839,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
               },
             ),
           ),
+          // 底部請假摘要列表
           Container(
             height: 160,
             padding: const EdgeInsets.all(8),
@@ -814,6 +851,7 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
   }
 }
 
+// 將 Firestore 查詢結果轉換為 teamLeave 的 Map
 Map<String, Map<String, dynamic>> snapshotToLeaveMap(QuerySnapshot snap) {
   final leaves = <String, Map<String, dynamic>>{};
   for (final doc in snap.docs) {

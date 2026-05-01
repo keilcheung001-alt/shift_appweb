@@ -188,8 +188,11 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       if (name.isEmpty || days <= 0) continue;
 
       final type = typeSelected[i];  // 取得當前行的請假類型
-      // 將類型同原因合併存入，方便 summary 顯示，例如：AL-旅行
+
+      // ✅ 修正：避免儲存 AL-AL
       if (reason.isEmpty) {
+        reason = type;
+      } else if (reason == type) {
         reason = type;
       } else {
         reason = '$type-$reason';
@@ -205,7 +208,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         final shift = shiftForDate(target);
         final bool isRestDay = shift.isEmpty;  // 判斷是否休息日
 
-        // 🚨 新邏輯：只有年假 (AL) 先要避開休息日，其他假就算休息日都可以請
+        // 只有年假 (AL) 先要避開休息日，其他假就算休息日都可以請
         if (type == 'AL' && isRestDay) {
           // 跳過休息日，但唔扣日數（即係繼續 loop）
           continue;
@@ -390,7 +393,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                     if (v == null) return;
                                     setState(() {
                                       typeSelected[i] = v;
-                                      // ✅ 重點：根據類型自動填入原因
+                                      // 根據類型自動填入原因
                                       switch (v) {
                                         case 'AL':
                                           reasonCtrls[i].text = 'AL';
@@ -400,9 +403,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                           break;
                                         case 'SL':
                                           reasonCtrls[i].text = 'SL';
-                                          break;
-                                        case '補鐘':
-                                          reasonCtrls[i].text = '補鐘';
                                           break;
                                         case 'TR':
                                           reasonCtrls[i].text = 'Training';
