@@ -16,7 +16,7 @@ class PendingLeaveItem {
   final String dateKey;
   final String team;
   final String name;
-  final String nickname; // [ADDED]
+  final String nickname;
   final String reason;
   final int days;
   final String status;
@@ -27,7 +27,7 @@ class PendingLeaveItem {
     required this.dateKey,
     required this.team,
     required this.name,
-    required this.nickname, // [ADDED]
+    required this.nickname,
     required this.reason,
     required this.days,
     required this.status,
@@ -43,27 +43,47 @@ class ApprovalPage extends StatefulWidget {
   State<ApprovalPage> createState() => _ApprovalPageState();
 }
 
-class _ApprovalPageState extends State<ApprovalPage> {
+class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderStateMixin {
   bool _canApprove = false;
   bool _loading = true;
   bool _isSuperAdmin = false;
   bool _isTeamLead = false;
   bool _isBatchProcessing = false;
-  String _selectedTeam = 'A';
+
   String _homeGroup = '';
-  List<PendingLeaveItem> _pendingItems = [];
-  Set<String> _selectedItemIds = {};
+  final List<String> _allTeams = ['A', 'B', 'C', 'D'];
+  late TabController _tabController;
+
+  // 用來儲存所有隊伍的待審批數據與勾選狀態
+  final Map<String, List<PendingLeaveItem>> _teamItemsMap = {'A': [], 'B': [], 'C': [], 'D': []};
+  final Map<String, Set<String>> _teamSelectedIdsMap = {'A': {}, 'B': {}, 'C': {}, 'D': {}};
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: _allTeams.length, vsync: this);
+    _tabController.addListener(_handleTabSelection);
     _initializePage();
+  }
+
+  @override
+  void dispose() {
+    _tabController.removeListener(_handleTabSelection);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _handleTabSelection() {
+    if (_tabController.indexIsChanging) {
+      // 當切換 Tab 時，觸發 UI 重繪即可（數據在初始化時已一次過同步監聽或加載）
+      setState(() {});
+    }
   }
 
   Future<void> _initializePage() async {
     _isSuperAdmin = await AuthUtil.getIsSuperAdmin();
     _isTeamLead = await AuthUtil.getIsTeamLead();
-    _homeGroup = await AuthUtil.getHomeGroup();
+    _homeGroup = await AuthUtil.getHomeGroup().then((value) => value.toUpperCase());
     _canApprove = _isSuperAdmin || _isTeamLead;
 
     if (!_canApprove) {
@@ -76,23 +96,47 @@ class _ApprovalPageState extends State<ApprovalPage> {
       return;
     }
 
-    if (_isSuperAdmin) {
-      if (widget.teamCode != null) _selectedTeam = widget.teamCode!;
-    } else {
-      _selectedTeam = _homeGroup;
+    // 設定初始選中的 Tab
+    String initialTeam = 'A';
+    if (_isSuperAdmin && widget.teamCode != null) {
+      initialTeam = widget.teamCode!.toUpperCase();
+    } else if (!_isSuperAdmin && _homeGroup.isNotEmpty) {
+      initialTeam = _homeGroup;
+    }
+
+    int initialIndex = _allTeams.indexOf(initialTeam);
+    if (initialIndex != -1) {
+      _tabController.index = initialIndex;
     }
 
     if (mounted) setState(() => _loading = false);
-    _loadPendingItems();
+
+    // 一次過加載所有隊伍的待審批數據，方便在 Tab 上顯示數量
+    _loadAllTeamsPendingItems();
   }
 
   String _getCollectionName(String team) {
     return FIRESTORE_LEAVE_COLLECTIONS[team.toUpperCase()] ?? FIRESTORE_A_TEAM_LEAVE;
   }
 
-  Future<void> _loadPendingItems() async {
+  String get _currentTeam => _allTeams[_tabController.index];
+  List<PendingLeaveItem> get _currentPendingItems => _teamItemsMap[_currentTeam] ?? [];
+  Set<String> get _currentSelectedIds => _teamSelectedIdsMap[_currentTeam] ?? {};
+
+  Future<void> _loadAllTeamsPendingItems() async {
+    for (String team in _allTeams) {
+      await _loadPendingItemsForTeam(team);
+    }
+  }
+
+  Future<void> _loadPendingItemsForTeam(String team) async {
+    // 如果不是 Super Admin 且不是自己隊伍，則不請求數據（安全權限防護）
+    if (!_isSuperAdmin && team != _homeGroup) {
+      return;
+    }
+
     try {
-      final collectionName = _getCollectionName(_selectedTeam);
+      final collectionName = _getCollectionName(team);
       final snapshot = await FirebaseFirestore.instance
           .collection(collectionName)
           .get(const GetOptions(source: Source.server));
@@ -103,7 +147,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
         final data = doc.data();
         final dateKey = data['dateKey'] as String? ?? doc.id;
         final names = (data['names'] as List<dynamic>?)?.cast<String>() ?? [];
-        final nicknames = (data['nicknames'] as List<dynamic>?)?.cast<String>() ?? []; // [ADDED]
+        final nicknames = (data['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
         final reasons = (data['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
         List<String> statuses = (data['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
 
@@ -117,9 +161,9 @@ class _ApprovalPageState extends State<ApprovalPage> {
             items.add(PendingLeaveItem(
               docId: doc.id,
               dateKey: dateKey,
-              team: _selectedTeam,
+              team: team,
               name: names[i],
-              nickname: i < nicknames.length ? nicknames[i] : '', // [ADDED]
+              nickname: i < nicknames.length ? nicknames[i] : '',
               reason: i < reasons.length ? reasons[i] : '',
               days: 1,
               status: status,
@@ -131,44 +175,40 @@ class _ApprovalPageState extends State<ApprovalPage> {
 
       if (mounted) {
         setState(() {
-          _pendingItems = items;
-          _selectedItemIds.clear();
+          _teamItemsMap[team] = items;
+          _teamSelectedIdsMap[team]?.clear();
         });
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ 載入失敗: $e')),
-        );
-      }
+      debugPrint('❌ 載入 $team 隊失敗: $e');
     }
   }
 
   void _toggleSelection(String id) {
     setState(() {
-      if (_selectedItemIds.contains(id)) {
-        _selectedItemIds.remove(id);
+      if (_currentSelectedIds.contains(id)) {
+        _currentSelectedIds.remove(id);
       } else {
-        _selectedItemIds.add(id);
+        _currentSelectedIds.add(id);
       }
     });
   }
 
   void _toggleSelectAll() {
     setState(() {
-      if (_selectedItemIds.length == _pendingItems.length) {
-        _selectedItemIds.clear();
+      if (_currentSelectedIds.length == _currentPendingItems.length) {
+        _currentSelectedIds.clear();
       } else {
-        _selectedItemIds.clear();
-        for (var item in _pendingItems) {
-          _selectedItemIds.add('${item.docId}_${item.index}');
+        _currentSelectedIds.clear();
+        for (var item in _currentPendingItems) {
+          _currentSelectedIds.add('${item.docId}_${item.index}');
         }
       }
     });
   }
 
   Future<void> _batchApprove() async {
-    if (_selectedItemIds.isEmpty) {
+    if (_currentSelectedIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請先選擇要批准的項目')),
       );
@@ -179,7 +219,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('批量批准'),
-        content: Text('確定批准所選的 ${_selectedItemIds.length} 項請假？'),
+        content: Text('確定批准所選的 ${_currentSelectedIds.length} 項請假？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('批准', style: TextStyle(color: Colors.green))),
@@ -191,8 +231,9 @@ class _ApprovalPageState extends State<ApprovalPage> {
 
     setState(() => _isBatchProcessing = true);
 
-    final idsToProcess = List<String>.from(_selectedItemIds);
+    final idsToProcess = List<String>.from(_currentSelectedIds);
     final itemsToNotify = <PendingLeaveItem>[];
+    final teamProcessing = _currentTeam;
 
     try {
       for (final id in idsToProcess) {
@@ -200,7 +241,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
         if (parts.length != 2) continue;
         final docId = parts[0];
         final index = int.parse(parts[1]);
-        final item = _pendingItems.firstWhere(
+        final item = _currentPendingItems.firstWhere(
           (i) => i.docId == docId && i.index == index,
           orElse: () => throw Exception('找不到項目'),
         );
@@ -209,7 +250,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
       }
 
       await _sendBatchWhatsAppWithItems(itemsToNotify);
-      await _loadPendingItems();
+      await _loadPendingItemsForTeam(teamProcessing);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ 批量批准失敗: $e')));
@@ -230,7 +271,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
     final prefs = await SharedPreferences.getInstance();
     final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
     final itemsList = items.map((item) {
-      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name; // [ADDED]
+      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name;
       return '👤 $displayName - ${item.dateKey} (${item.reason.isNotEmpty ? item.reason : '無'})';
     }).join('\n');
     final message = '✅ 批量批准請假\n\n$itemsList\n\n🔍 審批人: $approverNickname';
@@ -251,36 +292,46 @@ class _ApprovalPageState extends State<ApprovalPage> {
   }) async {
     if (mounted) {
       setState(() {
-        _pendingItems.removeWhere((i) => i.docId == item.docId && i.name == item.name);
-        _selectedItemIds.remove('${item.docId}_${item.index}');
+        _teamItemsMap[item.team]?.removeWhere((i) => i.docId == item.docId && i.name == item.name);
+        _teamSelectedIdsMap[item.team]?.remove('${item.docId}_${item.index}');
       });
     }
 
     try {
       final docRef = FirebaseFirestore.instance.collection(_getCollectionName(item.team)).doc(item.docId);
-      final doc = await docRef.get();
-      if (!doc.exists) return;
 
-      final data = doc.data()!;
-      final names = List<String>.from(data['names'] ?? []);
-      final statuses = List<String>.from(data['statuses'] ?? List.filled(names.length, 'pending'));
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) return;
 
-      final normalizedName = item.name.replaceAll(RegExp(r'\s'), '');
-      final idx = names.indexWhere((n) => n.replaceAll(RegExp(r'\s'), '') == normalizedName);
-      if (idx != -1) {
-        statuses[idx] = newStatus;
-        final allDone = statuses.every((s) => s != 'pending');
-        await docRef.update({
-          'statuses': statuses,
-          'status': allDone ? 'approved' : 'partial',
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+        final data = docSnap.data()!;
+        final names = List<String>.from(data['names'] ?? []);
+        final statuses = List<String>.from(data['statuses'] ?? List.filled(names.length, 'pending'));
+
+        final normalizedName = item.name.replaceAll(RegExp(r'\s'), '');
+        final idx = names.indexWhere((n) => n.replaceAll(RegExp(r'\s'), '') == normalizedName);
+        if (idx != -1) {
+          statuses[idx] = newStatus;
+          final allDone = statuses.every((s) => s != 'pending');
+
+          transaction.update(docRef, {
+            'statuses': statuses,
+            'status': allDone ? 'approved' : 'partial',
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
 
       await WidgetSnapshotWriter.forceRefreshForTeam(item.team);
-      if (!skipReload && mounted) await _loadPendingItems();
+      if (!skipReload && mounted) await _loadPendingItemsForTeam(item.team);
     } catch (e) {
-      if (mounted) setState(() => _pendingItems.add(item));
+      if (mounted) {
+        setState(() {
+          if (!_teamItemsMap[item.team]!.any((i) => i.docId == item.docId && i.name == item.name)) {
+            _teamItemsMap[item.team]?.add(item);
+          }
+        });
+      }
     }
   }
 
@@ -324,7 +375,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
       }
       final prefs = await SharedPreferences.getInstance();
       final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
-      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name; // [ADDED]
+      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name;
       final message = '✅ 已核准請假\n\n👤 員工: $displayName\n📅 日期: ${item.dateKey}\n📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n🔍 審批人: $approverNickname';
       await Clipboard.setData(ClipboardData(text: message));
       _showInfoDialog('訊息已複製到剪貼簿，請手動貼上到 WhatsApp 群組');
@@ -337,6 +388,101 @@ class _ApprovalPageState extends State<ApprovalPage> {
     }
   }
 
+  Widget _buildTeamListView(String team) {
+    // 權限防護：非 Super Admin 且非自己隊伍，顯示無權限卡片
+    if (!_isSuperAdmin && team != _homeGroup) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 48, color: Colors.grey),
+            SizedBox(height: 8),
+            Text('🔒 您只能查看及審批自己所屬的隊伍', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      );
+    }
+
+    final items = _teamItemsMap[team] ?? [];
+    final selectedIds = _teamSelectedIdsMap[team] ?? {};
+
+    if (items.isEmpty) {
+      return const Center(child: Text('🎉 暫無待核准請假'));
+    }
+
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final itemId = '${item.docId}_${item.index}';
+        final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: ListTile(
+            leading: Checkbox(
+              value: selectedIds.contains(itemId),
+              onChanged: (_) => _toggleSelection(itemId),
+            ),
+            title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
+                    const SizedBox(width: 4),
+                    Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87)),
+                  ],
+                ),
+                if (item.reason.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(Icons.edit_note, size: 16, color: Colors.blueGrey),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text('原因: ${item.reason}',
+                          style: const TextStyle(color: Colors.black87),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const CircleAvatar(
+                    backgroundColor: Colors.green,
+                    radius: 14,
+                    child: Icon(Icons.check, color: Colors.white, size: 16),
+                  ),
+                  onPressed: () => _approveSingle(item),
+                ),
+                IconButton(
+                  icon: const CircleAvatar(
+                    backgroundColor: Colors.red,
+                    radius: 14,
+                    child: Icon(Icons.close, color: Colors.white, size: 16),
+                  ),
+                  onPressed: () => _rejectSingle(item),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -345,54 +491,51 @@ class _ApprovalPageState extends State<ApprovalPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('請假核准'),
+        title: const Text('請假核准大廳'),
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: Icon(
-              _selectedItemIds.length == _pendingItems.length && _pendingItems.isNotEmpty
+              _currentSelectedIds.length == _currentPendingItems.length && _currentPendingItems.isNotEmpty
                   ? Icons.check_box
                   : Icons.check_box_outline_blank,
             ),
-            onPressed: _pendingItems.isEmpty ? null : _toggleSelectAll,
+            onPressed: _currentPendingItems.isEmpty ? null : _toggleSelectAll,
           ),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadPendingItems),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadAllTeamsPendingItems),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          tabs: _allTeams.map((team) {
+            final count = _teamItemsMap[team]?.length ?? 0;
+            // 如果有待審批項目，就在 Tab 加上紅色小圓點或者數字提示
+            return Tab(
+              text: count > 0 ? '$team 隊 ($count)' : '$team 隊',
+            );
+          }).toList(),
+        ),
       ),
       body: Column(
         children: [
-          if (_isSuperAdmin)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: DropdownButton<String>(
-                value: _selectedTeam,
-                items: const ['A', 'B', 'C', 'D']
-                    .map((team) => DropdownMenuItem(value: team, child: Text('$team 隊')))
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedTeam = value;
-                      _loadPendingItems();
-                    });
-                  }
-                },
-              ),
-            ),
-          if (_selectedItemIds.isNotEmpty)
+          if (_currentSelectedIds.isNotEmpty)
             Container(
               padding: const EdgeInsets.all(12),
               color: Colors.blue.shade50,
               child: Row(
                 children: [
-                  Text('已選擇 ${_selectedItemIds.length} 項', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('已選擇【$_currentTeam 隊】${_currentSelectedIds.length} 項',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                   const Spacer(),
                   ElevatedButton.icon(
                     onPressed: _isBatchProcessing ? null : _batchApprove,
                     icon: _isBatchProcessing
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.check),
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.done_all),
                     label: Text(_isBatchProcessing ? '處理中...' : '批量批准'),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
                   ),
@@ -400,43 +543,11 @@ class _ApprovalPageState extends State<ApprovalPage> {
               ),
             ),
           Expanded(
-            child: _pendingItems.isEmpty
-                ? const Center(child: Text('暫無待核准請假'))
-                : ListView.builder(
-                    itemCount: _pendingItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _pendingItems[index];
-                      final itemId = '${item.docId}_${item.index}';
-                      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name; // [ADDED]
-
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: ListTile(
-                          leading: Checkbox(
-                            value: _selectedItemIds.contains(itemId),
-                            onChanged: (_) => _toggleSelection(itemId),
-                          ),
-                          title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)), // [MODIFIED]
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Text('📅 日期: ${item.dateKey}'),
-                              if (item.reason.isNotEmpty) Text('📝 原因: ${item.reason}'),
-                              Text('隊伍: ${item.team}隊', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(icon: const Icon(Icons.check, color: Colors.green), onPressed: () => _approveSingle(item)),
-                              IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => _rejectSingle(item)),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+            child: TabBarView(
+              controller: _tabController,
+              // 如果是非 Super Admin，雖然能切換 Tab，但看其他隊伍時會被 _buildTeamListView 擋下提示無權限，符合架構安全
+              children: _allTeams.map((team) => _buildTeamListView(team)).toList(),
+            ),
           ),
         ],
       ),
