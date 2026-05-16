@@ -212,6 +212,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     return (start: visibleStart, endExclusive: endExclusive);
   }
 
+  // ✅ D 隊核心修復 1：加入 'partial' 狀態監聽！分批審批時假期絕不失蹤
   Future<void> subscribeLeavesForVisibleRange() async {
     final range = visibleRangeForMonthMondayStart(currentMonth);
 
@@ -227,7 +228,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
 
     final query = FirebaseFirestore.instance
         .collection(leaveCollection)
-        .where('status', whereIn: ['pending', 'approved'])
+        .where('status', whereIn: ['pending', 'approved', 'partial'])
         .where('dateKey', isGreaterThanOrEqualTo: DateFormat('yyyy-MM-dd').format(range.start))
         .where('dateKey', isLessThan: DateFormat('yyyy-MM-dd').format(range.endExclusive))
         .orderBy('dateKey');
@@ -279,25 +280,26 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final entry = monthLeaves[index];
         final info = entry.value;
         final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
-        final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
         final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
 
         final Map<String, Map<String, dynamic>> merged = {};
         for (int i = 0; i < names.length; i++) {
           final name = names[i];
           String reason = i < reasons.length ? reasons[i].trim() : '';
           if (reason.isEmpty) continue;
+          final status = i < statuses.length ? statuses[i] : 'pending';
 
           final parts = reason.split('-');
           final firstType = parts.first;
           final allSame = parts.every((p) => p == firstType);
           final count = parts.length;
 
-          final key = '$name|$firstType';
-          if (allSame) {
-            merged[key] = {'name': name, 'type': firstType, 'days': count};
+          final key = '$name|$firstType|$status';
+          if (allSame && count > 1) {
+            merged[key] = {'name': name, 'type': firstType, 'days': count, 'status': status};
           } else {
-            merged[key] = {'name': name, 'type': reason, 'days': 1};
+            merged['$name|$reason|$status'] = {'name': name, 'type': reason, 'days': 1, 'status': status};
           }
         }
 
@@ -305,10 +307,12 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
           final days = m['days'] as int;
           final type = m['type'] as String;
           final name = m['name'] as String;
+          final status = m['status'] as String;
+          final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
           if (days > 1) {
-            return '$name ($type x$days)';
+            return '$name ($type x$days)$statusIcon';
           } else {
-            return '$name ($type)';
+            return '$name ($type)$statusIcon';
           }
         }).toList();
 
@@ -316,7 +320,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: Text(
             '${entry.key}: ${pairs.join(', ')}',
-            maxLines: 2,
+            maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 12),
           ),
@@ -325,6 +329,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     );
   }
 
+  // ✅ D 隊核心修復 2：修復取消機制，取消後精準重新計算 partial 狀態，不亂覆蓋
   Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
     if (myName.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -342,26 +347,49 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
       if (!snap.exists) return;
 
       final data = snap.data() as Map<String, dynamic>;
-      if (data['status'] != 'pending') return;
 
       final namesDyn = (data['names'] as List<dynamic>? ?? []);
       final reasonsDyn = (data['reasons'] as List<dynamic>? ?? []);
+      final statusesDyn = (data['statuses'] as List<dynamic>? ?? []);
+      final nicknamesDyn = (data['nicknames'] as List<dynamic>? ?? []);
+      final staffIdsDyn = (data['staffIds'] as List<dynamic>? ?? []);
 
       final names = List<String>.from(namesDyn.map((e) => e.toString().trim()));
       final reasons = List<String>.from(reasonsDyn.map((e) => e.toString().trim()));
+      final statuses = List<String>.from(statusesDyn.map((e) => e.toString().trim()));
+      final nicknames = List<String>.from(nicknamesDyn.map((e) => e.toString().trim()));
+      final staffIds = List<String>.from(staffIdsDyn.map((e) => e.toString().trim()));
 
       final idx = names.indexWhere((n) => n.trim().toLowerCase() == myName.trim().toLowerCase());
       if (idx == -1) return;
 
+      if (idx >= statuses.length || statuses[idx] != 'pending') return;
+
       names.removeAt(idx);
       if (idx < reasons.length) reasons.removeAt(idx);
+      if (idx < statuses.length) statuses.removeAt(idx);
+      if (idx < nicknames.length) nicknames.removeAt(idx);
+      if (idx < staffIds.length) staffIds.removeAt(idx);
 
       if (names.isEmpty) {
         tx.delete(docRef);
       } else {
+        final bool hasApproved = statuses.contains('approved');
+        final bool hasPending = statuses.contains('pending');
+        String overallStatus = 'pending';
+        if (hasApproved && !hasPending) {
+          overallStatus = 'approved';
+        } else if (hasApproved && hasPending) {
+          overallStatus = 'partial';
+        }
+
         tx.update(docRef, {
           'names': names,
           'reasons': reasons,
+          'statuses': statuses,
+          'nicknames': nicknames,
+          'staffIds': staffIds,
+          'status': overallStatus,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       }
@@ -375,7 +403,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     );
   }
 
-  // ==================== 終極正確版 openEditDialog（絕不洗人） ====================
+  // ✅ D 隊核心修復 3：終極不洗人版 openEditDialog，嚴格控管 5 人上限，精確追蹤與儲存 partial 狀態
   Future<void> openEditDialog(DateTime day) async {
     final dk = dateKey(day);
     final shift = shiftForDate(day);
@@ -387,9 +415,11 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     final existingReasons = (existing['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
     final existingNicknames = (existing['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
 
+    final bool alreadyHasMe = existingNames.contains(myName);
+
     final initNames = List<String>.generate(5, (i) {
       if (i < existingNames.length) return existingNames[i];
-      else if (i == 0 && myName.isNotEmpty && isNormalStaff) return myName;
+      else if (!alreadyHasMe && myName.isNotEmpty && isNormalStaff && i == existingNames.length) return myName;
       return '';
     });
 
@@ -468,17 +498,19 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
           oldStaffIds = List<String>.from(data['staffIds'] ?? []);
         }
 
-        // 合併新人（絕不刪除舊人）
+        // 合併新人（精準卡死 5 人上限，絕不刪除舊人）
         for (int i = 0; i < newNames.length; i++) {
           final name = newNames[i];
           if (name.isEmpty) continue;
 
           if (!oldNames.contains(name)) {
-            oldNames.add(name);
-            oldNicknames.add(i < newNicknames.length ? newNicknames[i] : '');
-            oldReasons.add(i < newReasons.length ? newReasons[i] : '');
-            oldStatuses.add('pending');
-            oldStaffIds.add('');
+            if (oldNames.length < 5) {
+              oldNames.add(name);
+              oldNicknames.add(i < newNicknames.length ? newNicknames[i] : '');
+              oldReasons.add(i < newReasons.length ? newReasons[i] : '');
+              oldStatuses.add('pending');
+              oldStaffIds.add(name == myName ? widget.staffId : '');
+            }
           } else {
             final idx = oldNames.indexOf(name);
             if (idx != -1 && i < newReasons.length && newReasons[i].isNotEmpty) {
@@ -495,8 +527,15 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         while (oldStatuses.length < oldNames.length) oldStatuses.add('pending');
         while (oldStaffIds.length < oldNames.length) oldStaffIds.add('');
 
-        final allApproved = oldStatuses.every((s) => s == 'approved');
-        final overallStatus = allApproved ? 'approved' : (oldStatuses.contains('approved') ? 'partial' : 'pending');
+        final bool hasApproved = oldStatuses.contains('approved');
+        final bool hasPending = oldStatuses.contains('pending');
+
+        String overallStatus = 'pending';
+        if (hasApproved && !hasPending) {
+          overallStatus = 'approved';
+        } else if (hasApproved && hasPending) {
+          overallStatus = 'partial'; // 完美守護分批審批狀態！
+        }
 
         transaction.set(
           docRef,
@@ -520,7 +559,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final person = newNames[i];
         if (person.isEmpty) continue;
         final reason = i < newReasons.length ? newReasons[i] : '';
-        final days = i < newDays.length ? newDays[i] : 1;
+        final int days = i < newDays.length ? newDays[i] : 1;
         final bool isSelf = person == myName;
 
         await GoogleSheetsService.uploadLeaveRecord(
@@ -842,14 +881,17 @@ Map<String, Map<String, dynamic>> snapshotToLeaveMap(QuerySnapshot snap) {
       final List<dynamic> names = data['names'] != null ? List<dynamic>.from(data['names']) : <dynamic>[];
       final List<dynamic> nicknames = data['nicknames'] != null ? List<dynamic>.from(data['nicknames']) : <dynamic>[];
       final List<dynamic> reasons = data['reasons'] != null ? List<dynamic>.from(data['reasons']) : <dynamic>[];
+      final List<dynamic> statuses = data['statuses'] != null ? List<dynamic>.from(data['statuses']) : <dynamic>[];
 
       while (nicknames.length < names.length) nicknames.add("");
       while (reasons.length < names.length) reasons.add("");
+      while (statuses.length < names.length) statuses.add("pending");
 
       leaves[dk] = {
         'names': names,
         'nicknames': nicknames,
         'reasons': reasons,
+        'statuses': statuses,
         'shift': data['shift'] ?? '',
       };
     } catch (e) {
