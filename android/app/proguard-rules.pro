@@ -1,2 +1,0 @@
--keep class com.dexterous.** { *; }
--keep class androidx.core.app.** { *; }
