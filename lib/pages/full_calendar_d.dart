@@ -252,7 +252,6 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     await subscribeLeavesForVisibleRange();
   }
 
-  // ==================== 底部請假摘要列表 ====================
   Widget buildSummaryList() {
     final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
     final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
@@ -326,7 +325,6 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     );
   }
 
-  // 取消自己當日的待批請假（只限 pending 狀態）
   Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
     if (myName.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -377,7 +375,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     );
   }
 
-  // ==================== 終極修正版 openEditDialog ====================
+  // ==================== 終極正確版 openEditDialog（絕不洗人） ====================
   Future<void> openEditDialog(DateTime day) async {
     final dk = dateKey(day);
     final shift = shiftForDate(day);
@@ -421,110 +419,84 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
 
     if (result == null || result.isCancelled) return;
 
-    Map<String, Map<String, dynamic>> sanitizedPlanByDate = {};
-
-    if (isNormalStaff) {
-      result.planByDate.forEach((dateKeyStr, payload) {
-        final names = (payload['names'] as List<dynamic>? ?? [])
-            .map((e) => e.toString().trim())
-            .toList();
-        final nicknames = (payload['nicknames'] as List<dynamic>? ?? [])
-            .map((e) => e.toString())
-            .toList();
-        final reasons = (payload['reasons'] as List<dynamic>? ?? [])
-            .map((e) => e.toString())
-            .toList();
-        final days = (payload['days'] as List<dynamic>?)?.map((e) => e as int).toList() ?? [];
-
-        final onlyMe = <String>[];
-        final onlyNicknames = <String>[];
-        final onlyReasons = <String>[];
-        final onlyDays = <int>[];
-
-        for (int i = 0; i < names.length; i++) {
-          if (names[i] == myName) {
-            onlyMe.add(myName);
-            onlyNicknames.add(i < nicknames.length ? nicknames[i] : '');
-            onlyReasons.add(i < reasons.length ? reasons[i] : '');
-            onlyDays.add(i < days.length ? days[i] : 1);
-            break;
-          }
-        }
-
-        if (onlyMe.isNotEmpty) {
-          sanitizedPlanByDate[dateKeyStr] = {
-            'names': onlyMe,
-            'nicknames': onlyNicknames,
-            'reasons': onlyReasons,
-            'days': onlyDays,
-          };
-        }
-      });
-    } else {
-      sanitizedPlanByDate = result.planByDate;
-    }
-
-    if (sanitizedPlanByDate.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('你未有提交任何請假（或者只改咗其他人）'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
     final col = FirebaseFirestore.instance.collection(leaveCollection);
 
-    for (final entry in sanitizedPlanByDate.entries) {
+    for (final entry in result.planByDate.entries) {
       final dateKeyStr = entry.key;
-      final newNames = List<String>.from(entry.value['names'] as List<dynamic>);
-      final newNicknames = List<String>.from(entry.value['nicknames'] as List<dynamic>);
-      final newReasons = List<String>.from(entry.value['reasons'] as List<dynamic>);
-      final newDays = (entry.value['days'] as List<dynamic>?)?.map((e) => e as int).toList() ?? [];
+      final payload = entry.value;
+
+      final List<String> newNames = (payload['names'] as List<dynamic>?)
+              ?.map((e) => e.toString().trim())
+              .where((n) => n.isNotEmpty)
+              .toList() ??
+          [];
+
+      final List<String> newReasons = (payload['reasons'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [];
+
+      final List<String> newNicknames = (payload['nicknames'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [];
+
+      final List<int> newDays = (payload['days'] as List<dynamic>?)
+              ?.map((e) => e as int)
+              .toList() ??
+          [];
+
+      if (newNames.isEmpty) continue;
 
       final docRef = col.doc(dateKeyStr);
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snap = await transaction.get(docRef);
-        List<String> existingNames = [];
-        List<String> existingNicknames = [];
-        List<String> existingReasons = [];
-        List<String> existingStatuses = [];
+
+        List<String> oldNames = [];
+        List<String> oldNicknames = [];
+        List<String> oldReasons = [];
+        List<String> oldStatuses = [];
+        List<String> oldStaffIds = [];
 
         if (snap.exists) {
           final data = snap.data()!;
-          existingNames = List<String>.from(data['names'] ?? []);
-          existingNicknames = List<String>.from(data['nicknames'] ?? []);
-          existingReasons = List<String>.from(data['reasons'] ?? []);
-          existingStatuses = List<String>.from(data['statuses'] ?? []);
+          oldNames = List<String>.from(data['names'] ?? []);
+          oldNicknames = List<String>.from(data['nicknames'] ?? []);
+          oldReasons = List<String>.from(data['reasons'] ?? []);
+          oldStatuses = List<String>.from(data['statuses'] ?? []);
+          oldStaffIds = List<String>.from(data['staffIds'] ?? []);
         }
 
-        final Set<String> nameSet = Set.from(existingNames);
+        // 合併新人（絕不刪除舊人）
         for (int i = 0; i < newNames.length; i++) {
-          final name = newNames[i].trim();
+          final name = newNames[i];
           if (name.isEmpty) continue;
-          if (!nameSet.contains(name)) {
-            existingNames.add(name);
-            existingNicknames.add(i < newNicknames.length ? newNicknames[i] : '');
-            existingReasons.add(i < newReasons.length ? newReasons[i] : '');
-            existingStatuses.add('pending');
+
+          if (!oldNames.contains(name)) {
+            oldNames.add(name);
+            oldNicknames.add(i < newNicknames.length ? newNicknames[i] : '');
+            oldReasons.add(i < newReasons.length ? newReasons[i] : '');
+            oldStatuses.add('pending');
+            oldStaffIds.add('');
           } else {
-            final idx = existingNames.indexOf(name);
-            if (idx != -1) {
-              existingReasons[idx] = i < newReasons.length ? newReasons[i] : existingReasons[idx];
-              existingNicknames[idx] = i < newNicknames.length ? newNicknames[i] : existingNicknames[idx];
+            final idx = oldNames.indexOf(name);
+            if (idx != -1 && i < newReasons.length && newReasons[i].isNotEmpty) {
+              oldReasons[idx] = newReasons[i];
+            }
+            if (idx != -1 && i < newNicknames.length && newNicknames[i].isNotEmpty) {
+              oldNicknames[idx] = newNicknames[i];
             }
           }
         }
 
-        while (existingNicknames.length < existingNames.length) existingNicknames.add('');
-        while (existingReasons.length < existingNames.length) existingReasons.add('');
-        while (existingStatuses.length < existingNames.length) existingStatuses.add('pending');
+        while (oldNicknames.length < oldNames.length) oldNicknames.add('');
+        while (oldReasons.length < oldNames.length) oldReasons.add('');
+        while (oldStatuses.length < oldNames.length) oldStatuses.add('pending');
+        while (oldStaffIds.length < oldNames.length) oldStaffIds.add('');
 
-        final allApproved = existingStatuses.every((s) => s == 'approved');
-        final overallStatus = allApproved ? 'approved' : 'partial';
+        final allApproved = oldStatuses.every((s) => s == 'approved');
+        final overallStatus = allApproved ? 'approved' : (oldStatuses.contains('approved') ? 'partial' : 'pending');
 
         transaction.set(
           docRef,
@@ -532,11 +504,11 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
             'dateKey': dateKeyStr,
             'date': Timestamp.fromDate(DateTime.parse(dateKeyStr)),
             'shift': shiftForDate(DateTime.parse(dateKeyStr)),
-            'names': existingNames,
-            'nicknames': existingNicknames,
-            'reasons': existingReasons,
-            'staffIds': List<String>.filled(existingNames.length, ''),
-            'statuses': existingStatuses,
+            'names': oldNames,
+            'nicknames': oldNicknames,
+            'reasons': oldReasons,
+            'staffIds': oldStaffIds,
+            'statuses': oldStatuses,
             'status': overallStatus,
             'updatedAt': FieldValue.serverTimestamp(),
           },
@@ -546,8 +518,9 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
 
       for (int i = 0; i < newNames.length; i++) {
         final person = newNames[i];
+        if (person.isEmpty) continue;
         final reason = i < newReasons.length ? newReasons[i] : '';
-        final int days = i < newDays.length ? newDays[i] : 1;
+        final days = i < newDays.length ? newDays[i] : 1;
         final bool isSelf = person == myName;
 
         await GoogleSheetsService.uploadLeaveRecord(
@@ -570,13 +543,12 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已儲存 ${sanitizedPlanByDate.length} 天'),
+        content: Text('已儲存 ${result.planByDate.length} 天'),
         backgroundColor: Colors.green,
       ),
     );
   }
 
-  // 更新桌面小工具的快照資料
   Future<void> _updateWidgetSnapshot() async {
     final today = DateTime.now();
     final todayKey = dateKey(today);
@@ -860,7 +832,6 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
   }
 }
 
-// ==================== 終極防禦版 snapshotToLeaveMap ====================
 Map<String, Map<String, dynamic>> snapshotToLeaveMap(QuerySnapshot snap) {
   final leaves = <String, Map<String, dynamic>>{};
   for (final doc in snap.docs) {
@@ -872,7 +843,6 @@ Map<String, Map<String, dynamic>> snapshotToLeaveMap(QuerySnapshot snap) {
       final List<dynamic> nicknames = data['nicknames'] != null ? List<dynamic>.from(data['nicknames']) : <dynamic>[];
       final List<dynamic> reasons = data['reasons'] != null ? List<dynamic>.from(data['reasons']) : <dynamic>[];
 
-      // 強制補齊長度
       while (nicknames.length < names.length) nicknames.add("");
       while (reasons.length < names.length) reasons.add("");
 
