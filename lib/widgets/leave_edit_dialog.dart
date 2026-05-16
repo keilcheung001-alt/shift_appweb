@@ -179,6 +179,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     }
 
     final Map<String, List<String>> namesByDate = {};
+    final Map<String, List<String>> nicknamesByDate = {};
     final Map<String, List<String>> reasonsByDate = {};
 
     for (int i = 0; i < rowCount; i++) {
@@ -187,16 +188,18 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       final days = int.tryParse(daysCtrls[i].text.trim()) ?? 0;
       if (name.isEmpty || days <= 0) continue;
 
-      final type = typeSelected[i];  // 取得當前行的請假類型
+      final type = typeSelected[i];
 
-      // ✅ 修正：避免儲存 AL-AL
+      // 原因唔可以留空（已經喺上面驗證咗，但再保險一次）
       if (reason.isEmpty) {
-        reason = type;
-      } else if (reason == type) {
-        reason = type;
-      } else {
-        reason = '$type-$reason';
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('請填寫原因，不可以留空')),
+        );
+        return;
       }
+
+      // 原因有內容，就直接用，唔加任何類型前綴
+      // （類型只係輔助快速輸入，唔會記錄）
 
       int used = 0;
       int offset = 0;
@@ -206,20 +209,22 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         offset++;
 
         final shift = shiftForDate(target);
-        final bool isRestDay = shift.isEmpty;  // 判斷是否休息日
+        final bool isRestDay = shift.isEmpty;
 
         // 只有年假 (AL) 先要避開休息日，其他假就算休息日都可以請
         if (type == 'AL' && isRestDay) {
-          // 跳過休息日，但唔扣日數（即係繼續 loop）
           continue;
         }
 
-        // 其他情況（包括 AL 但非休息日，以及其他假）都正常計一日
         final dk = dateKey(target);
         namesByDate.putIfAbsent(dk, () => <String>[]);
+        nicknamesByDate.putIfAbsent(dk, () => <String>[]);
         reasonsByDate.putIfAbsent(dk, () => <String>[]);
 
         namesByDate[dk]!.add(name);
+        // 只有當姓名等於登入者原名時才儲存別名
+        final nickname = (name == widget.myName) ? widget.myNickname : '';
+        nicknamesByDate[dk]!.add(nickname);
         reasonsByDate[dk]!.add(reason);
 
         used++;
@@ -237,6 +242,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     namesByDate.forEach((dk, names) {
       planByDate[dk] = {
         'names': names,
+        'nicknames': nicknamesByDate[dk] ?? [],
         'reasons': reasonsByDate[dk] ?? List<String>.filled(names.length, ''),
       };
     });
@@ -393,7 +399,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                     if (v == null) return;
                                     setState(() {
                                       typeSelected[i] = v;
-                                      // 根據類型自動填入原因
+                                      // 根據類型自動填入原因（快捷功能）
                                       switch (v) {
                                         case 'AL':
                                           reasonCtrls[i].text = 'AL';

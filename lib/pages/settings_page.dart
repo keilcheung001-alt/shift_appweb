@@ -4,6 +4,8 @@ import 'package:shift_app/constants/constants.dart';
 import 'package:shift_app/utils/auth_util.dart';
 import 'package:shift_app/pages/google_sheets_config_page.dart';
 import 'package:shift_app/pages/holidays_page.dart';
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -54,6 +56,77 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('✅ 人數警示設定已儲存')),
+    );
+  }
+
+  // ==================== 鬧鐘 / 小工具修正引導 ====================
+  Future<void> _openAppDetailsSettings() async {
+    final deviceInfo = await DeviceInfoPlugin().androidInfo;
+    final sdkInt = deviceInfo.version.sdkInt;
+    if (sdkInt >= 24) { // Android 7+
+      const AndroidIntent intent = AndroidIntent(
+        action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
+        data: 'package:com.example.shift_app',  // 請確保同你個 package name 一致
+      );
+      await intent.launch();
+    } else {
+      // 舊版本直接跳電量優化設定
+      const AndroidIntent intent = AndroidIntent(
+        action: 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+      );
+      await intent.launch();
+    }
+  }
+
+  Future<void> _openExactAlarmSettings() async {
+    const AndroidIntent intent = AndroidIntent(
+      action: 'android.settings.REQUEST_SCHEDULE_EXACT_ALARM',
+    );
+    await intent.launch();
+  }
+
+  void _showAlarmFixDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('⏰ 鬧鐘 / 小工具修正'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('若鬧鐘唔準時或小工具唔更新，請手動開啟以下權限：'),
+            const SizedBox(height: 12),
+            const Text('1️⃣ 關閉電池優化（設定為「無限制」）'),
+            const Text('2️⃣ 開啟自啟動（允許自動啟動）'),
+            const SizedBox(height: 8),
+            const Text('3️⃣ 允許「鬧鐘與提醒」精準鬧鐘權限', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openAppDetailsSettings();
+              },
+              icon: const Icon(Icons.battery_alert),
+              label: const Text('前往應用程式設定'),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openExactAlarmSettings();
+              },
+              icon: const Icon(Icons.alarm),
+              label: const Text('開啟精準鬧鐘權限 (Android 13+)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('關閉'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -124,6 +197,23 @@ class _SettingsPageState extends State<SettingsPage> {
             const Divider(height: 1),
           ],
 
+          // ==================== 新增：鬧鐘/小工具修正 ====================
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.amber.shade50,
+            child: ListTile(
+              leading: const Icon(Icons.alarm_on, color: Colors.orange),
+              title: const Text(
+                '⏰ 鬧鐘 / 小工具修正',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text('如果鬧鐘唔響或 Widget 唔更新，點擊修正'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: _showAlarmFixDialog,
+            ),
+          ),
+          const Divider(height: 1),
+
           // 請假人數警示
           const ListTile(
             title: Text(
@@ -182,8 +272,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: ElevatedButton.icon(
               onPressed: _saveThresholds,
               icon: const Icon(Icons.save),

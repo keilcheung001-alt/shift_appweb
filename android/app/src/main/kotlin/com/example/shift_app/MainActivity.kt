@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -50,6 +51,11 @@ class MainActivity : FlutterActivity() {
                     scheduleAlarm(this, team, triggerTime)
                     result.success(null)
                 }
+                "cancelAlarm" -> {
+                    val team = call.argument<String>("team") ?: "A"
+                    cancelAlarm(this, team)
+                    result.success(null)
+                }
                 "showAlarm" -> {
                     val team = call.argument<String>("team") ?: "A"
                     sendBroadcast(Intent(this, AlarmReceiver::class.java).apply { putExtra("team", team) })
@@ -64,10 +70,44 @@ class MainActivity : FlutterActivity() {
 
     private fun scheduleAlarm(context: Context, team: String, triggerTime: Long) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("team", team)
+            putExtra("triggerTime", triggerTime)
+        }
+        // 固定 requestCode (用 team 字母的 ASCII 碼)
+        val requestCode = team.firstOrNull()?.code ?: 1001
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val currentTime = System.currentTimeMillis()
+        // 拒絕過去或太接近（5秒內）的時間
+        if (triggerTime <= currentTime + 5000) {
+            android.util.Log.w("MainActivity", "🚨 拒絕排程無效時間: triggerTime=$triggerTime, currentTime=$currentTime")
+            return
+        }
+        android.util.Log.d("MainActivity", "⏰ 鬧鐘排程成功: 隊伍=$team, 距離現在還有 ${(triggerTime - currentTime) / 1000} 秒")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerTime, pendingIntent), pendingIntent)
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+            } else {
+                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+            }
+        }
+    }
+
+    private fun cancelAlarm(context: Context, team: String) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, AlarmReceiver::class.java).apply { putExtra("team", team) }
-        val pendingIntent = PendingIntent.getBroadcast(context, triggerTime.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerTime, pendingIntent), pendingIntent)
-        else alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+        val requestCode = team.firstOrNull()?.code ?: 1001
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
+        android.util.Log.d("MainActivity", "❌ 已取消隊伍 $team 嘅鬧鐘")
     }
 
     private fun triggerAllWidgetsUpdate() {

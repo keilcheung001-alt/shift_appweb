@@ -21,7 +21,6 @@ class DesktopWidgetsPage extends StatefulWidget {
 }
 
 class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
-  // 永遠啟用，唔使開關
   bool _widgetEnabled = true;
   String _selectedTeam = 'A';
   bool _showLeaveCount = true;
@@ -33,7 +32,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   ];
   int _selectedUpdateIndex = 0;
 
-  // 鬧鐘永遠啟用
+  // 鬧鐘開關（預設啟用）
   bool _alarmEnabled = true;
   int _alarmAdvanceMinutes = 15;
   DateTime? _nextAlarmTime;
@@ -80,7 +79,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     final savedTeam = prefs.getString('widget_team') ?? homeGroup;
     setState(() {
       _selectedTeam = savedTeam;
-      // 強制啟用，唔理儲存值
       _widgetEnabled = true;
       _showLeaveCount = prefs.getBool('widget_show_leave_count_${_selectedTeam}') ?? true;
       _showNextShift = prefs.getBool('widget_show_next_shift_${_selectedTeam}') ?? true;
@@ -97,24 +95,29 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     final staffId = await AuthUtil.getStaffId();
     if (staffId.isEmpty) return;
     setState(() {
-      // 鬧鐘強制啟用
-      _alarmEnabled = true;
+      _alarmEnabled = prefs.getBool('alarm_enabled_$staffId') ?? true;
       _alarmAdvanceMinutes = prefs.getInt('alarm_advance_minutes_$staffId') ?? 15;
     });
     _updateNextAlarmTime();
   }
 
+  // ==================== 終極完美修正：搵下一個鬧鐘時間 ====================
   DateTime? _findNextAlarmTime() {
+    if (!_alarmEnabled) return null;
     final now = DateTime.now();
+    final safetyThreshold = now.add(const Duration(minutes: 20));
+
     for (int offset = 0; offset < 30; offset++) {
       final date = now.add(Duration(days: offset));
       final shift = _getShiftForDate(date);
       if (shift.isEmpty) continue;
       final shiftHour = SHIFT_START_HOURS[shift];
       if (shiftHour == null || shiftHour == 0) continue;
+
       DateTime alarmTime = DateTime(date.year, date.month, date.day, shiftHour, 0, 0)
           .subtract(Duration(minutes: _alarmAdvanceMinutes));
-      if (alarmTime.isAfter(now) || alarmTime.isAtSameMomentAs(now)) {
+
+      if (alarmTime.isAfter(safetyThreshold) && alarmTime.isAfter(now)) {
         return alarmTime;
       }
     }
@@ -122,10 +125,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   }
 
   void _updateNextAlarmTime() {
-    if (!_alarmEnabled) {
-      setState(() => _nextAlarmTime = null);
-      return;
-    }
     final alarmTime = _findNextAlarmTime();
     setState(() => _nextAlarmTime = alarmTime);
   }
@@ -154,7 +153,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     final staffId = await AuthUtil.getStaffId();
 
     await prefs.setString('widget_team', _selectedTeam);
-    // 唔再儲存啟用狀態，因為強制啟用
     await prefs.setBool('widget_show_leave_count_${_selectedTeam}', _showLeaveCount);
     await prefs.setBool('widget_show_next_shift_${_selectedTeam}', _showNextShift);
     await prefs.setBool('widget_show_nickname_${_selectedTeam}', _showNickname);
@@ -163,23 +161,34 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     await prefs.setStringList('widget_update_times_${_selectedTeam}', times);
 
     if (staffId.isNotEmpty) {
+      await prefs.setBool('alarm_enabled_$staffId', _alarmEnabled);
       await prefs.setInt('alarm_advance_minutes_$staffId', _alarmAdvanceMinutes);
       await WidgetSnapshotWriter.writeAlarmSnapshot(
         staffId: staffId,
-        alarmEnabled: true,
+        alarmEnabled: _alarmEnabled,
         advanceMinutes: _alarmAdvanceMinutes,
         nextAlarmTime: _nextAlarmTime?.toIso8601String(),
       );
     }
 
     await _refreshWidgetData();
-    await _scheduleAlarm();
+    if (_alarmEnabled) {
+      await _scheduleAlarm();
+    } else {
+      // 如果關咗鬧鐘，可以選擇取消所有已排程鬧鐘（optional）
+      await _cancelAlarm();
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ 設定已儲存')),
       );
     }
+  }
+
+  // 可選：取消鬧鐘嘅方法（如果要徹底清除）
+  Future<void> _cancelAlarm() async {
+    await alarmChannel.invokeMethod('cancelAlarm', {'team': _selectedTeam});
   }
 
   Future<void> _refreshWidgetData() async {
@@ -201,7 +210,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         title: const Text('需要精確鬧鐘權限'),
         content: const Text(
           '鬧鐘需要精確鬧鐘權限才能準時提醒你。\n\n'
-              '請前往「設定」→「應用程式」→ 允許「精確鬧鐘」權限。',
+          '請前往「設定」→「應用程式」→ 允許「精確鬧鐘」權限。',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
@@ -247,15 +256,21 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   Future<void> _scheduleAlarm() async {
     if (!_alarmEnabled) return;
     final alarmTime = _findNextAlarmTime();
-    if (alarmTime == null) return;
+    if (alarmTime == null) {
+      debugPrint('⚠️ 搵唔到有效嘅未來鬧鐘時間，取消排程');
+      return;
+    }
 
-    await alarmChannel.invokeMethod('scheduleAlarm', {
-      'team': _selectedTeam,
-      'triggerTime': alarmTime.millisecondsSinceEpoch,
-    });
-
-    debugPrint('⏰ 鬧鐘已排程 (原生 AlarmManager): $alarmTime');
-    _updateNextAlarmTime();
+    try {
+      await alarmChannel.invokeMethod('scheduleAlarm', {
+        'team': _selectedTeam,
+        'triggerTime': alarmTime.millisecondsSinceEpoch,
+      });
+      debugPrint('⏰ 鬧鐘已成功送往原生層排程: $alarmTime');
+      _updateNextAlarmTime();
+    } catch (e) {
+      debugPrint('❌ 排程鬧鐘失敗: $e');
+    }
   }
 
   String _getShiftForDate(DateTime date) {
@@ -291,7 +306,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 移除啟用小工具開關，改為顯示已啟用
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -329,7 +343,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               ),
             if (_cachedData != null) const SizedBox(height: 16),
 
-            // 選擇隊伍等設定保持不變
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -429,58 +442,89 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   children: [
                     const Text('⏰ 工作鬧鐘設定', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-                    // 移除啟用鬧鐘開關，改為顯示已啟用
-                    const Row(
-                      children: [
-                        Icon(Icons.alarm, color: Colors.green),
-                        SizedBox(width: 8),
-                        Text('鬧鐘狀態：', style: TextStyle(fontWeight: FontWeight.w500)),
-                        Text('✅ 已啟用', style: TextStyle(color: Colors.green)),
-                      ],
+                    // ✅ 加返鬧鐘啟用開關
+                    SwitchListTile(
+                      value: _alarmEnabled,
+                      onChanged: (value) async {
+                        setState(() {
+                          _alarmEnabled = value;
+                        });
+                        // 儲存設定
+                        final prefs = await SharedPreferences.getInstance();
+                        final staffId = await AuthUtil.getStaffId();
+                        if (staffId.isNotEmpty) {
+                          await prefs.setBool('alarm_enabled_$staffId', value);
+                        }
+                        if (value) {
+                          await _scheduleAlarm();
+                          _updateNextAlarmTime();
+                        } else {
+                          await _cancelAlarm();
+                          setState(() => _nextAlarmTime = null);
+                        }
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(value ? '✅ 鬧鐘已啟用' : '⏸️ 鬧鐘已關閉'),
+                            backgroundColor: value ? Colors.green : Colors.grey,
+                          ),
+                        );
+                      },
+                      title: const Text('啟用班次鬧鐘'),
+                      subtitle: const Text('開啟後會喺班次前提醒你'),
+                      activeColor: Colors.green,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
                           child: Slider(
                             value: _alarmAdvanceMinutes.toDouble(),
                             min: 5,
-                            max: 360,  // ✅ 改為 6 小時（360分鐘）
+                            max: 360,
                             divisions: 71,
                             label: '$_alarmAdvanceMinutes 分鐘',
                             activeColor: Colors.orange,
-                            onChanged: (val) {
-                              setState(() {
-                                _alarmAdvanceMinutes = val.round();
-                              });
-                              _updateNextAlarmTime();
-                            },
-                            onChangeEnd: (val) {
-                              _updateAdvanceMinutes(val.round());
-                            },
+                            onChanged: _alarmEnabled
+                                ? (val) {
+                                    setState(() {
+                                      _alarmAdvanceMinutes = val.round();
+                                    });
+                                    _updateNextAlarmTime();
+                                  }
+                                : null,
+                            onChangeEnd: _alarmEnabled
+                                ? (val) {
+                                    _updateAdvanceMinutes(val.round());
+                                  }
+                                : null,
                           ),
                         ),
                         IconButton(
                           icon: const Icon(Icons.remove_circle_outline),
-                          onPressed: () {
-                            final newVal = (_alarmAdvanceMinutes - 5).clamp(5, 360);
-                            _updateAdvanceMinutes(newVal);
-                          },
+                          onPressed: _alarmEnabled
+                              ? () {
+                                  final newVal = (_alarmAdvanceMinutes - 5).clamp(5, 360);
+                                  _updateAdvanceMinutes(newVal);
+                                }
+                              : null,
                         ),
                         IconButton(
                           icon: const Icon(Icons.add_circle_outline),
-                          onPressed: () {
-                            final newVal = (_alarmAdvanceMinutes + 5).clamp(5, 360);
-                            _updateAdvanceMinutes(newVal);
-                          },
+                          onPressed: _alarmEnabled
+                              ? () {
+                                  final newVal = (_alarmAdvanceMinutes + 5).clamp(5, 360);
+                                  _updateAdvanceMinutes(newVal);
+                                }
+                              : null,
                         ),
                       ],
                     ),
                     Text(
                       '將在班次前 $_alarmAdvanceMinutes 分鐘響鬧鐘',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(fontSize: 12, color: _alarmEnabled ? Colors.grey : Colors.grey.shade400),
                     ),
-                    if (_nextAlarmTime != null) ...[
+                    if (_nextAlarmTime != null && _alarmEnabled) ...[
                       const SizedBox(height: 16),
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -495,7 +539,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                             const SizedBox(height: 4),
                             Text(
                               '${_nextAlarmTime!.year}-${_nextAlarmTime!.month.toString().padLeft(2, '0')}-${_nextAlarmTime!.day.toString().padLeft(2, '0')} '
-                                  '${_nextAlarmTime!.hour.toString().padLeft(2, '0')}:${_nextAlarmTime!.minute.toString().padLeft(2, '0')}',
+                              '${_nextAlarmTime!.hour.toString().padLeft(2, '0')}:${_nextAlarmTime!.minute.toString().padLeft(2, '0')}',
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                           ],
@@ -505,7 +549,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     const SizedBox(height: 16),
                     Center(
                       child: ElevatedButton.icon(
-                        onPressed: _sendTestNotification,
+                        onPressed: _alarmEnabled ? _sendTestNotification : null,
                         icon: const Icon(Icons.notifications_active),
                         label: const Text('📢 測試通知 (直接發送)'),
                         style: ElevatedButton.styleFrom(

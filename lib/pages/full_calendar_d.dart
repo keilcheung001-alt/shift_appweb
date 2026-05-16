@@ -280,9 +280,9 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final entry = monthLeaves[index];
         final info = entry.value;
         final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
         final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
 
-        // 合併相同類型重複的原因（例如 AL-AL 顯示為 AL x2）
         final Map<String, Map<String, dynamic>> merged = {};
         for (int i = 0; i < names.length; i++) {
           final name = names[i];
@@ -377,8 +377,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     );
   }
 
-  // ==================== 修正後的 openEditDialog ====================
-  // 點擊日期時彈出請假編輯對話框，需要正確顯示已有請假人名
+  // ==================== 終極修正版 openEditDialog ====================
   Future<void> openEditDialog(DateTime day) async {
     final dk = dateKey(day);
     final shift = shiftForDate(day);
@@ -386,28 +385,18 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
 
     final isNormalStaff = !widget.canFullEdit;
 
-    // 讀取當日已儲存的請假資料
     final existingNames = (existing['names'] as List<dynamic>?)?.cast<String>() ?? const [];
     final existingReasons = (existing['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
+    final existingNicknames = (existing['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
 
-    // ✅ 修正：直接根據現有資料初始化表格，不依賴權限判斷來隱藏已有的人名
     final initNames = List<String>.generate(5, (i) {
-      // 優先顯示已儲存的人名
-      if (i < existingNames.length) {
-        return existingNames[i];
-      }
-      // 第一行空白時，若為普通員工且已登入，預填自己個名方便請假
-      else if (i == 0 && myName.isNotEmpty && isNormalStaff) {
-        return myName;
-      }
+      if (i < existingNames.length) return existingNames[i];
+      else if (i == 0 && myName.isNotEmpty && isNormalStaff) return myName;
       return '';
     });
 
     final initReasons = List<String>.generate(5, (i) {
-      // 優先顯示已儲存的原因
-      if (i < existingReasons.length) {
-        return existingReasons[i];
-      }
+      if (i < existingReasons.length) return existingReasons[i];
       return '';
     });
 
@@ -434,11 +423,13 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
 
     Map<String, Map<String, dynamic>> sanitizedPlanByDate = {};
 
-    // 普通員工只能提交自己的請假，過濾掉其他人
     if (isNormalStaff) {
       result.planByDate.forEach((dateKeyStr, payload) {
         final names = (payload['names'] as List<dynamic>? ?? [])
             .map((e) => e.toString().trim())
+            .toList();
+        final nicknames = (payload['nicknames'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
             .toList();
         final reasons = (payload['reasons'] as List<dynamic>? ?? [])
             .map((e) => e.toString())
@@ -446,12 +437,14 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final days = (payload['days'] as List<dynamic>?)?.map((e) => e as int).toList() ?? [];
 
         final onlyMe = <String>[];
+        final onlyNicknames = <String>[];
         final onlyReasons = <String>[];
         final onlyDays = <int>[];
 
         for (int i = 0; i < names.length; i++) {
           if (names[i] == myName) {
             onlyMe.add(myName);
+            onlyNicknames.add(i < nicknames.length ? nicknames[i] : '');
             onlyReasons.add(i < reasons.length ? reasons[i] : '');
             onlyDays.add(i < days.length ? days[i] : 1);
             break;
@@ -461,6 +454,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         if (onlyMe.isNotEmpty) {
           sanitizedPlanByDate[dateKeyStr] = {
             'names': onlyMe,
+            'nicknames': onlyNicknames,
             'reasons': onlyReasons,
             'days': onlyDays,
           };
@@ -486,77 +480,73 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     for (final entry in sanitizedPlanByDate.entries) {
       final dateKeyStr = entry.key;
       final newNames = List<String>.from(entry.value['names'] as List<dynamic>);
+      final newNicknames = List<String>.from(entry.value['nicknames'] as List<dynamic>);
       final newReasons = List<String>.from(entry.value['reasons'] as List<dynamic>);
       final newDays = (entry.value['days'] as List<dynamic>?)?.map((e) => e as int).toList() ?? [];
+
       final docRef = col.doc(dateKeyStr);
 
-      List<String> finalNames = [];
-      List<String> finalReasonsList = [];
-      List<String> finalStaffIds = [];
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snap = await transaction.get(docRef);
+        List<String> existingNames = [];
+        List<String> existingNicknames = [];
+        List<String> existingReasons = [];
+        List<String> existingStatuses = [];
 
-      await FirebaseFirestore.instance.runTransaction<void>((tx) async {
-        final snap = await tx.get(docRef);
-        final existingData = snap.data() ?? {};
-        final oldNames = List<String>.from(
-            (existingData['names'] as List<dynamic>? ?? []).map((e) => e.toString()));
-        final oldReasons = List<String>.from(
-            (existingData['reasons'] as List<dynamic>? ?? []).map((e) => e.toString()));
-        final oldStaffIds = List<String>.from(
-            (existingData['staffIds'] as List<dynamic>? ?? []).map((e) => e.toString()));
+        if (snap.exists) {
+          final data = snap.data()!;
+          existingNames = List<String>.from(data['names'] ?? []);
+          existingNicknames = List<String>.from(data['nicknames'] ?? []);
+          existingReasons = List<String>.from(data['reasons'] ?? []);
+          existingStatuses = List<String>.from(data['statuses'] ?? []);
+        }
 
-        finalNames.clear();
-        finalReasonsList.clear();
-        finalStaffIds.clear();
-        final seen = <String>{};
-
+        final Set<String> nameSet = Set.from(existingNames);
         for (int i = 0; i < newNames.length; i++) {
-          final n = newNames[i].trim();
-          if (n.isEmpty) continue;
-          if (seen.add(n)) {
-            finalNames.add(n);
-            finalReasonsList.add(i < newReasons.length ? newReasons[i] : '');
-            if (n == myName) {
-              finalStaffIds.add(myEmployeeId);
-            } else {
-              finalStaffIds.add('');
+          final name = newNames[i].trim();
+          if (name.isEmpty) continue;
+          if (!nameSet.contains(name)) {
+            existingNames.add(name);
+            existingNicknames.add(i < newNicknames.length ? newNicknames[i] : '');
+            existingReasons.add(i < newReasons.length ? newReasons[i] : '');
+            existingStatuses.add('pending');
+          } else {
+            final idx = existingNames.indexOf(name);
+            if (idx != -1) {
+              existingReasons[idx] = i < newReasons.length ? newReasons[i] : existingReasons[idx];
+              existingNicknames[idx] = i < newNicknames.length ? newNicknames[i] : existingNicknames[idx];
             }
           }
         }
 
-        for (int i = 0; i < oldNames.length; i++) {
-          if (i >= oldReasons.length) continue;
-          final n = oldNames[i].trim();
-          if (n.isEmpty) continue;
-          if (seen.add(n)) {
-            finalNames.add(n);
-            finalReasonsList.add(oldReasons[i]);
-            if (i < oldStaffIds.length) {
-              finalStaffIds.add(oldStaffIds[i]);
-            } else {
-              finalStaffIds.add('');
-            }
-          }
-        }
+        while (existingNicknames.length < existingNames.length) existingNicknames.add('');
+        while (existingReasons.length < existingNames.length) existingReasons.add('');
+        while (existingStatuses.length < existingNames.length) existingStatuses.add('pending');
 
-        tx.set(
+        final allApproved = existingStatuses.every((s) => s == 'approved');
+        final overallStatus = allApproved ? 'approved' : 'partial';
+
+        transaction.set(
           docRef,
           {
             'dateKey': dateKeyStr,
             'date': Timestamp.fromDate(DateTime.parse(dateKeyStr)),
             'shift': shiftForDate(DateTime.parse(dateKeyStr)),
-            'names': finalNames,
-            'reasons': finalReasonsList,
-            'staffIds': finalStaffIds,
-            'status': 'pending',
+            'names': existingNames,
+            'nicknames': existingNicknames,
+            'reasons': existingReasons,
+            'staffIds': List<String>.filled(existingNames.length, ''),
+            'statuses': existingStatuses,
+            'status': overallStatus,
             'updatedAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true),
         );
       });
 
-      for (int i = 0; i < finalNames.length; i++) {
-        final person = finalNames[i];
-        final reason = i < finalReasonsList.length ? finalReasonsList[i] : '';
+      for (int i = 0; i < newNames.length; i++) {
+        final person = newNames[i];
+        final reason = i < newReasons.length ? newReasons[i] : '';
         final int days = i < newDays.length ? newDays[i] : 1;
         final bool isSelf = person == myName;
 
@@ -653,31 +643,6 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
       ),
       body: Column(
         children: [
-          // 星期標題列
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            color: Colors.grey.shade200,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: '日一二三四五六'
-                  .split('')
-                  .map(
-                    (d) => Expanded(
-                  child: Text(
-                    d,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: d == '日' || d == '六' ? Colors.red : Colors.black87,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              )
-                  .toList(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // 月份切換
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -690,13 +655,36 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
             ],
           ),
           const SizedBox(height: 8),
-          // 日曆網格
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            color: Colors.grey.shade200,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: '日一二三四五六'
+                  .split('')
+                  .map(
+                    (d) => Expanded(
+                      child: Text(
+                        d,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: d == '日' || d == '六' ? Colors.red : Colors.black87,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
           Expanded(
+            flex: 4,
             child: GridView.builder(
               padding: const EdgeInsets.all(4),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 7,
-                childAspectRatio: 0.52,
+                childAspectRatio: 1.15,
                 crossAxisSpacing: 2,
                 mainAxisSpacing: 2,
               ),
@@ -739,6 +727,18 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
 
                 final isToday = isSameDate(day, DateTime.now());
 
+                String displayName = "";
+                if (teamLeave.containsKey(dk)) {
+                  final data = teamLeave[dk]!;
+                  final nicknames = data['nicknames'] as List? ?? [];
+                  final names = data['names'] as List? ?? [];
+                  if (nicknames.isNotEmpty && nicknames[0].toString().isNotEmpty) {
+                    displayName = nicknames[0].toString();
+                  } else if (names.isNotEmpty) {
+                    displayName = names[0].toString();
+                  }
+                }
+
                 return Transform.scale(
                   scale: isToday ? 1.2 : 1.0,
                   alignment: Alignment.center,
@@ -751,8 +751,8 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
                           color: isToday
                               ? Colors.grey.shade800
                               : (peopleCount > 0
-                              ? badgeColor.withOpacity(0.5)
-                              : Colors.grey.shade400),
+                                  ? badgeColor.withOpacity(0.5)
+                                  : Colors.grey.shade400),
                           width: isToday ? 2 : 1,
                         ),
                         borderRadius: BorderRadius.circular(4),
@@ -809,6 +809,16 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                              if (displayName.isNotEmpty)
+                                Text(
+                                  displayName,
+                                  style: const TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                             ],
                           ),
                           if (peopleCount > 0)
@@ -839,10 +849,9 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
               },
             ),
           ),
-          // 底部請假摘要列表
-          Container(
-            height: 160,
-            padding: const EdgeInsets.all(8),
+          const Divider(height: 1, thickness: 0.5),
+          Expanded(
+            flex: 3,
             child: buildSummaryList(),
           ),
         ],
@@ -851,17 +860,31 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
   }
 }
 
-// 將 Firestore 查詢結果轉換為 teamLeave 的 Map
+// ==================== 終極防禦版 snapshotToLeaveMap ====================
 Map<String, Map<String, dynamic>> snapshotToLeaveMap(QuerySnapshot snap) {
   final leaves = <String, Map<String, dynamic>>{};
   for (final doc in snap.docs) {
-    final data = doc.data() as Map<String, dynamic>;
-    final dk = data['dateKey'] ?? doc.id.toString();
-    leaves[dk] = {
-      'names': List<dynamic>.from(data['names'] ?? []),
-      'reasons': List<dynamic>.from(data['reasons'] ?? []),
-      'shift': data['shift'] ?? '',
-    };
+    try {
+      final data = doc.data() as Map<String, dynamic>;
+      final dk = data['dateKey'] ?? doc.id.toString();
+
+      final List<dynamic> names = data['names'] != null ? List<dynamic>.from(data['names']) : <dynamic>[];
+      final List<dynamic> nicknames = data['nicknames'] != null ? List<dynamic>.from(data['nicknames']) : <dynamic>[];
+      final List<dynamic> reasons = data['reasons'] != null ? List<dynamic>.from(data['reasons']) : <dynamic>[];
+
+      // 強制補齊長度
+      while (nicknames.length < names.length) nicknames.add("");
+      while (reasons.length < names.length) reasons.add("");
+
+      leaves[dk] = {
+        'names': names,
+        'nicknames': nicknames,
+        'reasons': reasons,
+        'shift': data['shift'] ?? '',
+      };
+    } catch (e) {
+      debugPrint('單日解析失敗（已跳過）: $e');
+    }
   }
   return leaves;
 }

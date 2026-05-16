@@ -37,7 +37,6 @@ class WidgetSnapshotWriter {
       await prefs.setString('widget_${loginGroup}_data', jsonStr);
       debugPrint('[WidgetSnapshot] ✅ 已寫入 $loginGroup 隊快照, leaveCount=$leaveCount');
 
-      // 主动推送数据到 Android 原生
       await _channel.invokeMethod('updateWidgetData', {
         'team': loginGroup,
         'todayShift': todayShift,
@@ -89,28 +88,106 @@ class WidgetSnapshotWriter {
       if (doc.exists) {
         final data = doc.data()!;
         final names = (data['names'] as List<dynamic>?)?.cast<String>() ?? [];
+        final nicknames = (data['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
         final reasons = (data['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
-        final leaversWithNicknames = <String>[];
+
+        // ✅ 智能格式化：別名優先 + 提取原因代號（短碼）
+        final leaversWithDetails = <String>[];
         for (int i = 0; i < names.length; i++) {
-          final reasonCode = i < reasons.length ? reasons[i].split('-').first : '';
-          leaversWithNicknames.add('${names[i]}($reasonCode)');
+          final name = names[i];
+          final nickname = (i < nicknames.length) ? nicknames[i] : '';
+          final displayName = (nickname.isNotEmpty) ? nickname : name;
+
+          String reasonCode = "";
+          if (i < reasons.length) {
+            String raw = reasons[i];
+            if (raw.isNotEmpty) {
+              // 情況1：格式係 "AL-病假" → 取最後一段（用戶寫嘅原因）
+              if (raw.contains('-')) {
+                reasonCode = raw.split('-').last;
+              }
+              // 情況2：格式係 "病假 (V)" 或 "病假（SL）" → 取括號內
+              else if (raw.contains('(') && raw.contains(')')) {
+                reasonCode = raw.substring(raw.indexOf('(') + 1, raw.indexOf(')'));
+              } else if (raw.contains('（') && raw.contains('）')) {
+                reasonCode = raw.substring(raw.indexOf('（') + 1, raw.indexOf('）'));
+              }
+              // 情況3：無括號、無中劃線 → 取頭兩個字（例如 "事假" -> "事假"）
+              else {
+                reasonCode = raw.length > 2 ? raw.substring(0, 2) : raw;
+              }
+            }
+          }
+
+          if (reasonCode.isNotEmpty) {
+            leaversWithDetails.add('$displayName ($reasonCode)');
+          } else {
+            leaversWithDetails.add(displayName);
+          }
         }
+
         final tomorrow = today.add(const Duration(days: 1));
         final nextShift1 = _getShiftForDate(tomorrow, team);
         final tomorrowKey = DateFormat('yyyy-MM-dd').format(tomorrow);
         final tomorrowDoc = await FirebaseFirestore.instance.collection(collection).doc(tomorrowKey).get();
         final tomorrowNames = (tomorrowDoc.data()?['names'] as List<dynamic>?)?.cast<String>() ?? [];
+        final tomorrowNicknames = (tomorrowDoc.data()?['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
         final tomorrowReasons = (tomorrowDoc.data()?['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
+
         final tomorrowLeavers = <String>[];
         for (int i = 0; i < tomorrowNames.length; i++) {
-          final reasonCode = i < tomorrowReasons.length ? tomorrowReasons[i].split('-').first : '';
-          tomorrowLeavers.add('${tomorrowNames[i]}($reasonCode)');
+          final name = tomorrowNames[i];
+          final nickname = (i < tomorrowNicknames.length) ? tomorrowNicknames[i] : '';
+          final displayName = (nickname.isNotEmpty) ? nickname : name;
+
+          String reasonCode = "";
+          if (i < tomorrowReasons.length) {
+            String raw = tomorrowReasons[i];
+            if (raw.isNotEmpty) {
+              if (raw.contains('-')) {
+                reasonCode = raw.split('-').last;
+              } else if (raw.contains('(') && raw.contains(')')) {
+                reasonCode = raw.substring(raw.indexOf('(') + 1, raw.indexOf(')'));
+              } else if (raw.contains('（') && raw.contains('）')) {
+                reasonCode = raw.substring(raw.indexOf('（') + 1, raw.indexOf('）'));
+              } else {
+                reasonCode = raw.length > 2 ? raw.substring(0, 2) : raw;
+              }
+            }
+          }
+
+          if (reasonCode.isNotEmpty) {
+            tomorrowLeavers.add('$displayName ($reasonCode)');
+          } else {
+            tomorrowLeavers.add(displayName);
+          }
         }
-        await writeWidgetSnapshot(loginGroup: team, todayShift: _getShiftForDate(today, team), shiftName: _getShiftName(_getShiftForDate(today, team)), shiftTime: _getShiftTime(_getShiftForDate(today, team)), leaveCount: names.length, leavers: leaversWithNicknames, nextShift1: nextShift1, nextShiftLeavers1: tomorrowLeavers);
+
+        await writeWidgetSnapshot(
+          loginGroup: team,
+          todayShift: _getShiftForDate(today, team),
+          shiftName: _getShiftName(_getShiftForDate(today, team)),
+          shiftTime: _getShiftTime(_getShiftForDate(today, team)),
+          leaveCount: names.length,
+          leavers: leaversWithDetails,
+          nextShift1: nextShift1,
+          nextShiftLeavers1: tomorrowLeavers,
+        );
       } else {
-        await writeWidgetSnapshot(loginGroup: team, todayShift: _getShiftForDate(today, team), shiftName: _getShiftName(_getShiftForDate(today, team)), shiftTime: _getShiftTime(_getShiftForDate(today, team)), leaveCount: 0, leavers: [], nextShift1: _getShiftForDate(today.add(const Duration(days: 1)), team), nextShiftLeavers1: []);
+        await writeWidgetSnapshot(
+          loginGroup: team,
+          todayShift: _getShiftForDate(today, team),
+          shiftName: _getShiftName(_getShiftForDate(today, team)),
+          shiftTime: _getShiftTime(_getShiftForDate(today, team)),
+          leaveCount: 0,
+          leavers: [],
+          nextShift1: _getShiftForDate(today.add(const Duration(days: 1)), team),
+          nextShiftLeavers1: [],
+        );
       }
-    } catch (e) { debugPrint('[WidgetSnapshot] 刷新 $team 失敗: $e'); }
+    } catch (e) {
+      debugPrint('[WidgetSnapshot] 刷新 $team 失敗: $e');
+    }
   }
 
   static String _getShiftForDate(DateTime date, String team) {
