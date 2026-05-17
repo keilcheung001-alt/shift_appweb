@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'constants/constants.dart';
 import 'screens/login_page.dart';
-// 💡 核心修正：只引入正確的 desktop_widgets_page，徹底移除舊有 team_menu_page 的引入，防止撞名
 import 'pages/desktop_widgets_page.dart';
+// 💡 還原：重新引入你原汁原味的團隊主選單頁面，由它內部直接調用 A、B、C、D 隊大月曆
+import 'package:shift_app/pages/team_menu_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,15 +26,14 @@ class TempoLeaveApp extends StatelessWidget {
         primarySwatch: Colors.indigo,
         useMaterial3: true,
       ),
-      // 🚀 預設進到前台防窺版的登入畫面
       home: const LoginPage(),
       routes: {
         ROUTE_LOGIN: (context) => const LoginPage(),
 
-        // 🎯 核心修正一：將原本指向 TeamMenuPage 的舊路由，完美導向至整合好的 DesktopWidgetsPage
-        ROUTE_TEAM_MENU: (context) => const DesktopWidgetsPage(),
+        // 🎯 完美歸位：登入後直接回到你最熟悉的 TeamMenuPage，看爆四組大月曆表！
+        ROUTE_TEAM_MENU: (context) => const TeamMenuPage(),
 
-        // 🎯 核心修正二：確保此處的 DesktopWidgetsPage 100% 來自唯一檔案，不再鬧雙胞
+        // 🎯 獨立存在：小工具專屬通道，兩者各司其職不打交
         ROUTE_DESKTOP_WIDGETS: (context) => const DesktopWidgetsPage(),
       },
     );

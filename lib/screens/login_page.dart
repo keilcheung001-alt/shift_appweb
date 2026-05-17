@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shift_app/constants/constants.dart';
-import 'package:shift_app/pages/desktop_widgets_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -20,7 +19,7 @@ class _LoginPageState extends State<LoginPage> {
   String selectedGroup = 'A';
   bool loading = true;
 
-  // 🔒 新增防窺狀態控制（純前台畫面防窺，不影響底層真實數據）
+  // 🔒 純前台畫面防窺開關（絕不影響底層真實數據）
   bool _obscureName = true;
   bool _obscureStaffId = true;
 
@@ -60,7 +59,7 @@ class _LoginPageState extends State<LoginPage> {
 
     final prefs = await SharedPreferences.getInstance();
 
-    // 🎯 撥亂反正：儲存進系統的 100% 是真實、無修改的原始數據！後面所有檔案皆可正常讀取與對對碰
+    // 🎯 核心重點：存入本地系統的全部都是真實、無遮罩的數據，後面所有月曆檔案均可照常讀取、對碰！
     await prefs.setString(SPK_MY_NAME, rawName);
     await prefs.setString(SPK_NICKNAME, nickName.isEmpty ? rawName : nickName);
     await prefs.setString(SPK_STAFF_ID, rawStaffId);
@@ -70,17 +69,13 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString(SPK_PERMISSION_CODE, role == '隊長' ? 'ADMIN' : 'MEMBER');
     await prefs.setInt(SPK_LOGIN_TIMESTAMP, DateTime.now().millisecondsSinceEpoch);
 
-    _showMessage('✅ 登入成功！(數據已安全同步，後台完全可見)');
+    _showMessage('✅ 登入成功！(數據安全同步，不影響月曆核對)');
 
     await Future.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
 
-    // 跳轉至小工具頁面
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => const DesktopWidgetsPage(),
-      ),
-    );
+    // 🚀 撥亂返正：登入成功後，一律使用原本的團隊選單路由跳轉，讓你原本的 A,B,C,D 大月曆完美運作！
+    Navigator.of(context).pushReplacementNamed(ROUTE_TEAM_MENU);
   }
 
   @override
@@ -89,7 +84,7 @@ class _LoginPageState extends State<LoginPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('登入 (前台防窺版)'),
+        title: const Text('登入 (前台防窺保護)'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
       ),
@@ -118,13 +113,13 @@ class _LoginPageState extends State<LoginPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('👤 個人資訊 (畫面已啟用防窺保護)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('👤 個人資訊 (防窺保護中，防止旁人偷窺)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 16),
 
-                            // 🔒 姓名輸入框：加入小眼睛開關，避免翻出來直接看到名
+                            // 🔒 姓名防窺：打字或點進來時不會直白顯現，按眼睛圖標可看真名核對
                             TextField(
                               controller: nameController,
-                              obscureText: _obscureName, // 畫面隱蔽控制
+                              obscureText: _obscureName,
                               decoration: InputDecoration(
                                 labelText: '姓名 *',
                                 hintText: '例如：張三豐',
@@ -133,9 +128,7 @@ class _LoginPageState extends State<LoginPage> {
                                 fillColor: Colors.white,
                                 suffixIcon: IconButton(
                                   icon: Icon(_obscureName ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
-                                  onPressed: () {
-                                    setState(() => _obscureName = !_obscureName);
-                                  },
+                                  onPressed: () => setState(() => _obscureName = !_obscureName),
                                 ),
                               ),
                             ),
@@ -152,10 +145,10 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             const SizedBox(height: 12),
 
-                            // 🔒 員工編號輸入框：密碼化隱蔽，輸入完自動變圓點
+                            // 🔒 工號防窺：畫面上隱蔽，但實際發送時為真實工號
                             TextField(
                               controller: staffIdController,
-                              obscureText: _obscureStaffId, // 畫面隱蔽控制
+                              obscureText: _obscureStaffId,
                               decoration: InputDecoration(
                                 labelText: '員工編號 *',
                                 hintText: '例如：B001',
@@ -164,9 +157,7 @@ class _LoginPageState extends State<LoginPage> {
                                 fillColor: Colors.white,
                                 suffixIcon: IconButton(
                                   icon: Icon(_obscureStaffId ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
-                                  onPressed: () {
-                                    setState(() => _obscureStaffId = !_obscureStaffId);
-                                  },
+                                  onPressed: () => setState(() => _obscureStaffId = !_obscureStaffId),
                                 ),
                               ),
                             ),
@@ -175,7 +166,7 @@ class _LoginPageState extends State<LoginPage> {
                             TextField(
                               controller: jobTitleController,
                               decoration: const InputDecoration(
-                                labelText: '職位（如: UR, SM, 可選）',
+                                labelText: '職位（可選）',
                                 border: OutlineInputBorder(),
                                 filled: true,
                                 fillColor: Colors.white,

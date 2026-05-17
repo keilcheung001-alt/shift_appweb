@@ -26,18 +26,32 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   bool _showNextShift = true;
   bool _showNickname = true;
 
-  // 鬧鐘開關（預設啟用）
+  // 鬧鐘總開關
   bool _alarmEnabled = true;
-  // 提前多少分鐘響鬧鐘（預設 60 分鐘）
-  int _alarmAdvanceMinutes = 60;
+
+  // 🎯 5大班次各自獨立的「提前分鐘數」（起始設定保留充足彈性，供用戶自行向前向後跳）
+  int _advanceM = 90;   // 早班預設 90 分鐘（留充足時間搭廠車）
+  int _advanceLM = 90;  // L早班預設 90 分鐘
+  int _advanceA = 60;   // 中班預設 60 分鐘
+  int _advanceLN = 120; // L夜班預設 120 分鐘
+  int _advanceN = 120;  // 夜班預設 120 分鐘
+
+  // 🎯 核心新增：5大班次各自獨立的「鬧鐘啟用開關」（唔想響嘅班次可以直接閂咗佢，極致彈性）
+  bool _enableM = true;
+  bool _enableLM = true;
+  bool _enableA = true;
+  bool _enableLN = true;
+  bool _enableN = true;
 
   bool _loading = true;
 
-  // 🕒 廠房固定的班次開工時間（用作員工個人鬧鐘對照，保護隱私）
+  // 🕒 100% 採用廠房真正開工時間
   final Map<String, String> shiftTimes = {
-    'M': '07:00 AM',  // 早班
-    'A': '03:00 PM',  // 中班
-    'N': '11:00 PM',  // 夜班
+    'M': '08:00',
+    'LM': '08:00',
+    'A': '16:00',
+    'LN': '20:00',
+    'N': '23:00',
   };
 
   @override
@@ -56,7 +70,20 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       _showNickname = prefs.getBool('widget_show_nickname') ?? true;
 
       _alarmEnabled = prefs.getBool('widget_alarm_enabled') ?? true;
-      _alarmAdvanceMinutes = prefs.getInt('widget_alarm_advance_minutes') ?? 60;
+
+      // 載入 5 個班次獨立的提前分鐘數
+      _advanceM = prefs.getInt('alarm_advance_M') ?? 90;
+      _advanceLM = prefs.getInt('alarm_advance_LM') ?? 90;
+      _advanceA = prefs.getInt('alarm_advance_A') ?? 60;
+      _advanceLN = prefs.getInt('alarm_advance_LN') ?? 120;
+      _advanceN = prefs.getInt('alarm_advance_N') ?? 120;
+
+      // 載入 5 個班次獨立的開關狀態
+      _enableM = prefs.getBool('alarm_enable_M') ?? true;
+      _enableLM = prefs.getBool('alarm_enable_LM') ?? true;
+      _enableA = prefs.getBool('alarm_enable_A') ?? true;
+      _enableLN = prefs.getBool('alarm_enable_LN') ?? true;
+      _enableN = prefs.getBool('alarm_enable_N') ?? true;
 
       _loading = false;
     });
@@ -70,63 +97,63 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     await prefs.setBool('widget_show_nickname', _showNickname);
 
     await prefs.setBool('widget_alarm_enabled', _alarmEnabled);
-    await prefs.setInt('widget_alarm_advance_minutes', _alarmAdvanceMinutes);
 
-    // 🛡️ 網頁防卡死安全鎖：用 try-catch 包裹手機專用功能
+    // 儲存 5 個班次獨立的提前分鐘數
+    await prefs.setInt('alarm_advance_M', _advanceM);
+    await prefs.setInt('alarm_advance_LM', _advanceLM);
+    await prefs.setInt('alarm_advance_A', _advanceA);
+    await prefs.setInt('alarm_advance_LN', _advanceLN);
+    await prefs.setInt('alarm_advance_N', _advanceN);
+
+    // 儲存 5 個班次獨立的開關狀態
+    await prefs.setBool('alarm_enable_M', _enableM);
+    await prefs.setBool('alarm_enable_LM', _enableLM);
+    await prefs.setBool('alarm_enable_A', _enableA);
+    await prefs.setBool('alarm_enable_LN', _enableLN);
+    await prefs.setBool('alarm_enable_N', _enableN);
+
     try {
       await WidgetSnapshotWriter.forceRefreshAllWidgets();
+      await alarmChannel.invokeMethod('syncAlarms'); // 全面同步最新智能鬧鐘到手機系統
     } catch (e) {
-      // 網頁版無手機底層元件時會走到這裏，直接跳過不報錯，不影響畫面彈條
-      debugPrint('網頁測試模式：已安全儲存數據，已跳過手機 Widget 刷新。');
+      debugPrint('Sync failed: $e');
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 設定已成功儲存，小工具與鬧鐘已同步！(私隱保護已啟用)')),
+        const SnackBar(content: Text('💾 5組獨立彈性鬧鐘已安全同步！已完美適配你的返工出行習慣。')),
       );
     }
   }
 
-  Future<void> _updateAdvanceMinutes(int value) async {
-    setState(() {
-      _alarmAdvanceMinutes = value;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('widget_alarm_advance_minutes', _alarmAdvanceMinutes);
-  }
+  // 🧮 精準動態減數邏輯
+  String _calculateAlarmTime(String startTimeStr, int earlyMinutes) {
+    try {
+      final parts = startTimeStr.split(':');
+      final int hour = int.parse(parts[0]);
+      final int minute = int.parse(parts[1]);
 
-  // 🧮 依據提前分鐘數，精準計算實際響鬧時間
-  String _calculateAlarmTime(String shift, int earlyMinutes) {
-    if (shift == 'M') {
-      int totalMins = 7 * 60 - earlyMinutes;
-      if (totalMins < 0) totalMins += 24 * 60; // 跨日處理
-      int h = totalMins ~/ 60; int m = totalMins % 60;
-      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} AM';
-    } else if (shift == 'A') {
-      int totalMins = 15 * 60 - earlyMinutes;
-      int h = totalMins ~/ 60; int m = totalMins % 60;
-      int displayH = h > 12 ? h - 12 : h;
-      return '${displayH.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} PM';
-    } else if (shift == 'N') {
-      int totalMins = 23 * 60 - earlyMinutes;
-      int h = totalMins ~/ 60; int m = totalMins % 60;
-      int displayH = h > 12 ? h - 12 : h;
-      return '${displayH.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} PM';
+      int totalMins = hour * 60 + minute - earlyMinutes;
+      if (totalMins < 0) {
+        totalMins += 24 * 60; // 跨日處理
+      }
+
+      final int finalHour = totalMins ~/ 60;
+      final int finalMinute = totalMins % 60;
+
+      return '${finalHour.toString().padLeft(2, '0')}:${finalMinute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return startTimeStr;
     }
-    return '';
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('小工具與鬧鐘設定'),
+        title: const Text('桌面小工具與全彈性鬧鐘'),
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
       ),
@@ -135,23 +162,19 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🔒 核心修改：加強私隱防護說明 Card，徹底封印人數統計疑慮
+            // 本地隱私卡片
             Card(
               color: Colors.grey[900],
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    Icon(Icons.privacy_tip, color: Colors.greenAccent, size: 28),
+                    Icon(Icons.tune, color: Colors.greenAccent, size: 24),
                     SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('🔒 廠房數據私隱保護中', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                          SizedBox(height: 4),
-                          Text('本頁面絕不收集或計算廠房總編制人頭。手機小工具僅載入個人稱號更表，正式紀錄只留存於安全端。', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                        ],
+                      child: Text(
+                        '🔒 彈性控制台：每班獨立開關及時間扣減，完全滿足揸車、搭廠車或住公司隔離的個人化需求。',
+                        style: TextStyle(color: Colors.white, fontSize: 13),
                       ),
                     ),
                   ],
@@ -160,6 +183,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 16),
 
+            // 📱 桌面小工具配置
             const Text('📱 桌面小工具配置', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Card(
@@ -168,30 +192,23 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 children: [
                   SwitchListTile(
                     title: const Text('啟用桌面小工具功能'),
-                    subtitle: const Text('關閉後小工具將停止更新'),
                     value: _widgetEnabled,
                     activeColor: Colors.orange,
-                    onChanged: (val) {
-                      setState(() => _widgetEnabled = val);
-                    },
+                    onChanged: (val) => setState(() => _widgetEnabled = val),
                   ),
                   if (_widgetEnabled) ...[
                     const Divider(height: 1),
                     ListTile(
                       title: const Text('小工具追蹤隊伍'),
-                      subtitle: const Text('選擇要在桌面上顯示哪一隊的更表'),
                       trailing: DropdownButton<String>(
                         value: _selectedTeam,
-                        items: ['A', 'B', 'C', 'D'].map((t) {
-                          return DropdownMenuItem(value: t, child: Text('$t 隊'));
-                        }).toList(),
+                        items: ['A', 'B', 'C', 'D'].map((t) => DropdownMenuItem(value: t, child: Text('$t 隊'))).toList(),
                         onChanged: (val) {
                           if (val != null) setState(() => _selectedTeam = val);
                         },
                       ),
                     ),
                     const Divider(height: 1),
-                    // 💡 已徹底移除原本會收集/顯示個人假期統計的 showLeaveCount 開關，避免人頭統計猜疑
                     SwitchListTile(
                       title: const Text('顯示下一班次預告'),
                       value: _showNextShift,
@@ -200,7 +217,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
-                      title: const Text('顯示用戶稱號花名'), // 正名為用戶稱號花名
+                      title: const Text('顯示用戶稱號花名'),
                       value: _showNickname,
                       activeColor: Colors.orange,
                       onChanged: (val) => setState(() => _showNickname = val),
@@ -211,63 +228,82 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 24),
 
-            const Text('⏰ 智能上班鬧鐘設定', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            // ⏰ 智能上班鬧鐘設定
+            const Text('⏰ 廠房班次全彈性鬧鐘設定', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('可隨意調整各更次的提前響鬧時間。如某個班次不需要鬧鐘，可直接關閉該班次開關。', style: TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 8),
             Card(
               elevation: 2,
               child: Column(
                 children: [
                   SwitchListTile(
-                    title: const Text('開啟返工智能鬧鐘'),
-                    subtitle: const Text('跟隨更表自動響鬧，請假核准當日自動取消'),
+                    title: const Text('開啟返工智能鬧鐘功能'),
+                    subtitle: const Text('開啟後，系統會自動對照你登入隊伍的當天更表執行對應鬧鐘。'),
                     value: _alarmEnabled,
                     activeColor: Colors.orange,
-                    onChanged: (val) {
-                      setState(() => _alarmEnabled = val);
-                    },
+                    onChanged: (val) => setState(() => _alarmEnabled = val),
                   ),
                   if (_alarmEnabled) ...[
                     const Divider(height: 1),
-                    ListTile(
-                      title: const Text('鬧鐘提前提醒時間'),
-                      subtitle: Text('目前設定：提前 $_alarmAdvanceMinutes 分鐘響鈴 (${(_alarmAdvanceMinutes / 60).toStringAsFixed(1)} 小時)'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle_outline, color: Colors.orange),
-                            onPressed: () {
-                              final newVal = (_alarmAdvanceMinutes - 5).clamp(5, 240);
-                              _updateAdvanceMinutes(newVal);
-                            },
-                          ),
-                          Text('$_alarmAdvanceMinutes 分鐘', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline, color: Colors.orange),
-                            onPressed: () {
-                              final newVal = (_alarmAdvanceMinutes + 5).clamp(5, 240);
-                              _updateAdvanceMinutes(newVal);
-                            },
-                          ),
-                        ],
-                      ),
+
+                    // 1. 早班 (M)
+                    _buildFlexibleAlarmSlider(
+                      title: '早班 (M) 智能鬧鐘',
+                      startTime: shiftTimes['M']!,
+                      isSubEnabled: _enableM,
+                      currentAdvance: _advanceM,
+                      color: const Color(0xFF1E88E5),
+                      onToggleChanged: (val) => setState(() => _enableM = val),
+                      onSliderChanged: (val) => setState(() => _advanceM = val),
                     ),
-                    // 🎯 核心修改：在按鈕下方直接加載「各班次實際時間對照」
                     const Divider(height: 1),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('⏰ 當前設定下各更次之精準響鬧時間：', style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          Text('• 早班 (M) [${shiftTimes['M']}] ➔ 🎯 於 ${_calculateAlarmTime('M', _alarmAdvanceMinutes)} 響鬧', style: const TextStyle(fontSize: 13, color: Colors.redAccent, fontWeight: FontWeight.w500)),
-                          const SizedBox(height: 4),
-                          Text('• 中班 (A) [${shiftTimes['A']}] ➔ 🎯 於 ${_calculateAlarmTime('A', _alarmAdvanceMinutes)} 響鬧', style: const TextStyle(fontSize: 13, color: Colors.redAccent, fontWeight: FontWeight.w500)),
-                          const SizedBox(height: 4),
-                          Text('• 夜班 (N) [${shiftTimes['N']}] ➔ 🎯 於 ${_calculateAlarmTime('N', _alarmAdvanceMinutes)} 響鬧', style: const TextStyle(fontSize: 13, color: Colors.redAccent, fontWeight: FontWeight.w500)),
-                        ],
-                      ),
+
+                    // 2. L早班 (LM)
+                    _buildFlexibleAlarmSlider(
+                      title: 'L早班 (LM) 智能鬧鐘',
+                      startTime: shiftTimes['LM']!,
+                      isSubEnabled: _enableLM,
+                      currentAdvance: _advanceLM,
+                      color: const Color(0xFF43A047),
+                      onToggleChanged: (val) => setState(() => _enableLM = val),
+                      onSliderChanged: (val) => setState(() => _advanceLM = val),
+                    ),
+                    const Divider(height: 1),
+
+                    // 3. 中班 (A)
+                    _buildFlexibleAlarmSlider(
+                      title: '中班 (A) 智能鬧鐘',
+                      startTime: shiftTimes['A']!,
+                      isSubEnabled: _enableA,
+                      currentAdvance: _advanceA,
+                      color: const Color(0xFFFB8C00),
+                      onToggleChanged: (val) => setState(() => _enableA = val),
+                      onSliderChanged: (val) => setState(() => _advanceA = val),
+                    ),
+                    const Divider(height: 1),
+
+                    // 4. L夜班 (LN)
+                    _buildFlexibleAlarmSlider(
+                      title: 'L夜班 (LN) 智能鬧鐘',
+                      startTime: shiftTimes['LN']!,
+                      isSubEnabled: _enableLN,
+                      currentAdvance: _advanceLN,
+                      color: const Color(0xFF00838F),
+                      onToggleChanged: (val) => setState(() => _enableLN = val),
+                      onSliderChanged: (val) => setState(() => _advanceLN = val),
+                    ),
+                    const Divider(height: 1),
+
+                    // 5. 夜班 (N)
+                    _buildFlexibleAlarmSlider(
+                      title: '夜班 (N) 智能鬧鐘',
+                      startTime: shiftTimes['N']!,
+                      isSubEnabled: _enableN,
+                      currentAdvance: _advanceN,
+                      color: const Color(0xFF7B1FA2),
+                      onToggleChanged: (val) => setState(() => _enableN = val),
+                      onSliderChanged: (val) => setState(() => _advanceN = val),
                     ),
                   ],
                 ],
@@ -275,12 +311,13 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 24),
 
+            // 保存按鈕
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _saveWidgetSettings,
                 icon: const Icon(Icons.save, color: Colors.white),
-                label: const Text('保存並即時同步設定', style: TextStyle(fontSize: 16, color: Colors.white)),
+                label: const Text('儲存全彈性設定並即時同步', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   backgroundColor: Colors.orange,
@@ -288,30 +325,84 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                border: Border.all(color: Colors.blue.shade200),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('ℹ️ 小工具與智能鬧鐘説明', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text('• 桌面小工具會實時顯示今日及未來兩日班次', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                  Text('• 需要在手機桌面添加 "Tempo Leave" Widget', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                  Text('• 長按手機桌面空白位置 > 加入 Widget', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                  Text('• 鬧鐘會喺班次開始前準時提醒你（最高支援提早 4 小時）', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                  Text('• 當你在 App 內請假成功且管理員核准後，當日鬧鐘會全自動取消，無需手動關閉', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                ],
-              ),
-            ),
           ],
         ),
+      ),
+    );
+  }
+
+  // 📦 核心封裝組件：支援各班次「獨立開關 Toggle」與「大範圍自由調較 Slider」
+  Widget _buildFlexibleAlarmSlider({
+    required String title,
+    required String startTime,
+    required bool isSubEnabled,
+    required int currentAdvance,
+    required Color color,
+    required ValueChanged<bool> onToggleChanged,
+    required ValueChanged<int> onSliderChanged,
+  }) {
+    String ringingTime = _calculateAlarmTime(startTime, currentAdvance);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 第一行：顏色標誌、名稱、獨立開關
+          Row(
+            children: [
+              Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const Spacer(),
+              Transform.scale(
+                scale: 0.85,
+                child: Switch(
+                  value: isSubEnabled,
+                  activeColor: color,
+                  onChanged: onToggleChanged,
+                ),
+              ),
+            ],
+          ),
+
+          // 如果該班次關閉了，變灰顯示已關閉
+          if (!isSubEnabled) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              child: Text(
+                '❌ 本班次鬧鐘已關閉 (當天即使排到此班也不會響鬧)',
+                style: TextStyle(color: Colors.red.shade400, fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ] else ...[
+            // 如果開啟，顯示精準動態減數結果與 Slider
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.between,
+              children: [
+                Text(
+                  currentAdvance == 0 ? '設定：準時出門提示' : '設定：提早 $currentAdvance 分鐘響鬧',
+                  style: const TextStyle(fontSize: 13, color: Colors.black80),
+                ),
+                Text(
+                  '🎯 鬧鐘將於 $ringingTime 響起 (開工: $startTime)',
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ],
+            ),
+            Slider(
+              value: currentAdvance.toDouble(),
+              min: 0,
+              max: 240, // 0 至 4 小時超寬範圍，揸車或長途車皆可適配
+              divisions: 48, // 每 5 分鐘一格，極致精準
+              label: '提早 $currentAdvance 分鐘',
+              activeColor: color,
+              inactiveColor: color.withOpacity(0.15),
+              onChanged: (val) => onSliderChanged(val.toInt()),
+            ),
+          ],
+        ],
       ),
     );
   }
