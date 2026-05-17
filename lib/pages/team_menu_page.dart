@@ -7,7 +7,7 @@ import '../utils/shift_calculator.dart';
 import '../constants/constants.dart';
 import 'my_leave_page.dart';
 import 'announcement_page.dart';
-import 'settings_page.dart';
+import 'desktop_widgets_page.dart';
 import '../screens/login_page.dart';
 
 class TeamMenuPage extends StatefulWidget {
@@ -36,13 +36,12 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   late Timer _timer;
   String _todayShift = '...';
 
-  // 100% 還原相片中的 4 隊專屬顏色
   Color _getTeamButtonColor(String team) {
     switch (team) {
-      case 'A': return const Color(0xFF3F51B5); // 藍色
-      case 'B': return const Color(0xFFFF8F00); // 橙色
-      case 'C': return const Color(0xFF4CAF50); // 綠色
-      case 'D': return const Color(0xFF9C27B0); // 紫色
+      case 'A': return const Color(0xFF3F51B5);
+      case 'B': return const Color(0xFFFF8F00);
+      case 'C': return const Color(0xFF4CAF50);
+      case 'D': return const Color(0xFF9C27B0);
       default: return Colors.indigo;
     }
   }
@@ -61,7 +60,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   }
 
   Future<void> _initData() async {
-    // 避免底層異步加載時引發空指針灰畫面
     await Future.delayed(const Duration(milliseconds: 300));
     if (mounted) {
       setState(() {
@@ -94,16 +92,14 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 安全防禦，防止後台傳入 null 導致灰畫面
     final userRole = widget.role ?? '員工';
     final userGroup = widget.group ?? 'A';
-    final isManagement = (widget.canFullEdit == true || widget.isSuperAdmin == true);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFBF7), // 手機版米白底色
+      backgroundColor: const Color(0xFFFFFBF7),
       appBar: AppBar(
         title: const Text('隊伍管理選單', style: TextStyle(fontWeight: FontWeight.normal, fontSize: 20)),
-        backgroundColor: const Color(0xFF4A55A2), // 原裝深藍色 AppBar
+        backgroundColor: const Color(0xFF4A55A2),
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
@@ -119,12 +115,12 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // 1. 👤 頂部用戶個人資料大卡片 (還原 10883.jpg 樣式)
+                // 1. 👤 頂部用戶個人資料卡片
                 Container(
                   margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF3F51B5), // 藍色大卡片背景
+                    color: const Color(0xFF3F51B5),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
@@ -169,13 +165,13 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ),
                 ),
 
-                // 2. 📢 黃色一則通告公告欄 (還原 10883.jpg 樣式)
+                // 2. 📢 黃色公告欄
                 Container(
                   width: double.infinity,
                   margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF3CD), // 亮黃色背景
+                    color: const Color(0xFFFFF3CD),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
@@ -200,7 +196,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text('一則', style: TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.bold)),
-                                Text(announcementText, style: const TextStyle(color: Colors.black64, fontSize: 13)),
+                                Text(announcementText, style: const TextStyle(color: Colors.black54, fontSize: 13)),
                               ],
                             );
                           },
@@ -213,7 +209,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
                 const SizedBox(height: 16),
 
-                // 3. 🔲 隊伍日曆（快速切換）標題與四色圓角按鈕
+                // 3. 🔲 四色隊伍日曆快速切換按鈕
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Align(
@@ -268,7 +264,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
                 const SizedBox(height: 16),
 
-                // 4. 🎛️ 底部功能清單（嚴格分組：常規功能 + 管理員功能）
+                // 4. 🎛️ 底部功能列表（全體直接平鋪顯示）
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.only(bottom: 24),
@@ -285,7 +281,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                       _buildMenuTile(
                         icon: Icons.cancel_presentation_outlined,
                         title: '取消請假申請',
-                        onTap: () {}, // 依需求保留空跳轉
+                        onTap: () {},
                       ),
                       _buildMenuTile(
                         icon: Icons.notifications_none,
@@ -294,7 +290,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => AnnouncementPage(team: userGroup, canEdit: isManagement),
+                              builder: (context) => AnnouncementPage(team: userGroup, canEdit: true),
                             ),
                           );
                         },
@@ -302,39 +298,36 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                       _buildMenuTile(
                         icon: Icons.grid_view,
                         title: '桌面小工具與鬧鐘',
-                        onTap: () {},
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const DesktopWidgetsPage())),
                       ),
 
-                      // 👑 管理員專區（當 isManagement 為 true 時完美插入）
-                      if (isManagement) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(left: 16, top: 20, bottom: 8),
-                          child: const Text(
-                            '管理員功能',
-                            style: TextStyle(color: Colors.redAccent, fontSize: 15, fontWeight: FontWeight.bold)
-                          ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 16, top: 20, bottom: 8),
+                        child: const Text(
+                          '管理功能',
+                          style: TextStyle(color: Colors.indigo, fontSize: 15, fontWeight: FontWeight.bold)
                         ),
-                        _buildMenuTile(
-                          icon: Icons.gavel,
-                          title: '審批請假申請',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
-                        ),
-                        _buildMenuTile(
-                          icon: Icons.calendar_month_outlined,
-                          title: '假期與自訂節日管理',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
-                        ),
-                        _buildMenuTile(
-                          icon: Icons.settings,
-                          title: 'Google Sheets 配置',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
-                        ),
-                        _buildMenuTile(
-                          icon: Icons.chat_bubble_outline,
-                          title: 'WhatsApp 通知配置',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_WHATSAPP_CONFIG),
-                        ),
-                      ],
+                      ),
+                      _buildMenuTile(
+                        icon: Icons.gavel,
+                        title: '審批請假申請',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
+                      ),
+                      _buildMenuTile(
+                        icon: Icons.calendar_month_outlined,
+                        title: '假期與自訂節日管理',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
+                      ),
+                      _buildMenuTile(
+                        icon: Icons.settings,
+                        title: 'Google Sheets 配置',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
+                      ),
+                      _buildMenuTile(
+                        icon: Icons.chat_bubble_outline,
+                        title: 'WhatsApp 通知配置',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_WHATSAPP_CONFIG),
+                      ),
                     ],
                   ),
                 ),
@@ -354,7 +347,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        leading: Icon(icon, color: const Color(0xFF2F3M90), size: 24),
+        leading: Icon(icon, color: const Color(0xFF3F51B5), size: 24),
         title: Text(title, style: const TextStyle(color: Colors.black87, fontSize: 16)),
         trailing: const Icon(Icons.chevron_right, color: Colors.black26, size: 20),
         onTap: onTap,

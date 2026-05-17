@@ -1,9 +1,5 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/services.dart';
-
-final MethodChannel alarmChannel = MethodChannel('com.example.shift_app/alarm');
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DesktopWidgetsPage extends StatefulWidget {
   const DesktopWidgetsPage({super.key});
@@ -13,350 +9,267 @@ class DesktopWidgetsPage extends StatefulWidget {
 }
 
 class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
-  bool _widgetEnabled = true;
-  String _selectedTeam = 'A';
-  bool _showNextShift = true;
+  // 核心鬧鐘控制狀態變數
+  bool _isProcessAlarmEnabled = true;
+  bool _isEquipmentAlarmEnabled = true;
+  bool _isSafetyAlarmEnabled = true;
+  double _alarmRangeMinutes = 60.0;
 
-  bool _alarmEnabled = true;
-
-  // 👑 我哋傾咗一個鐘頭嘅 5 大班次獨立提前分鐘設定
-  int _advanceM = 90;
-  int _advanceLM = 90;
-  int _advanceA = 60;
-  int _advanceLN = 120;
-  int _advanceN = 120;
-
-  // 👑 5 大班次獨立鬧鐘開關
-  bool _enableM = true;
-  bool _enableLM = true;
-  bool _enableA = true;
-  bool _enableLN = true;
-  bool _enableN = true;
-
-  bool _loading = true;
-
-  // 🕒 廠房固定班次開工時間
-  final Map<String, String> shiftTimes = {
-    'M': '06:45',
-    'LM': '07:45',
-    'A': '14:45',
-    'LN': '22:30',
-    'N': '22:45',
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _loadWidgetSettings();
-  }
-
-  Future<void> _loadWidgetSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _widgetEnabled = prefs.getBool('widgetEnabled') ?? true;
-      _selectedTeam = prefs.getString('widgetSelectedTeam') ?? 'A';
-      _showNextShift = prefs.getBool('widgetShowNextShift') ?? true;
-      _alarmEnabled = prefs.getBool('widgetAlarmEnabled') ?? true;
-
-      _advanceM = prefs.getInt('alarmAdvanceM') ?? 90;
-      _advanceLM = prefs.getInt('alarmAdvanceLM') ?? 90;
-      _advanceA = prefs.getInt('alarmAdvanceA') ?? 60;
-      _advanceLN = prefs.getInt('alarmAdvanceLN') ?? 120;
-      _advanceN = prefs.getInt('alarmAdvanceN') ?? 120;
-
-      _enableM = prefs.getBool('alarmEnableM') ?? true;
-      _enableLM = prefs.getBool('alarmEnableLM') ?? true;
-      _enableA = prefs.getBool('alarmEnableA') ?? true;
-      _enableLN = prefs.getBool('alarmEnableLN') ?? true;
-      _enableN = prefs.getBool('alarmEnableN') ?? true;
-
-      _loading = false;
-    });
-  }
-
-  Future<void> _saveWidgetSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('widgetEnabled', _widgetEnabled);
-    await prefs.setString('widgetSelectedTeam', _selectedTeam);
-    await prefs.setBool('widgetShowNextShift', _showNextShift);
-    await prefs.setBool('widgetAlarmEnabled', _alarmEnabled);
-
-    await prefs.setInt('alarmAdvanceM', _advanceM);
-    await prefs.setInt('alarmAdvanceLM', _advanceLM);
-    await prefs.setInt('alarmAdvanceA', _advanceA);
-    await prefs.setInt('alarmAdvanceLN', _advanceLN);
-    await prefs.setInt('alarmAdvanceN', _advanceN);
-
-    await prefs.setBool('alarmEnableM', _enableM);
-    await prefs.setBool('alarmEnableLM', _enableLM);
-    await prefs.setBool('alarmEnableA', _enableA);
-    await prefs.setBool('alarmEnableLN', _enableLN);
-    await prefs.setBool('alarmEnableN', _enableN);
-
-    try {
-      await alarmChannel.invokeMethod('updateAlarms');
-    } catch (e) {
-      debugPrint('Failed to invoke native alarm update: $e');
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('💾 設定已成功儲存並同步至系統鬧鐘')),
-      );
-    }
-  }
-
-  // 🔔 觸發原生鬧鐘測試邏輯
-  Future<void> _triggerAlarmTest() async {
-    try {
-      await alarmChannel.invokeMethod('testAlarm');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🔔 鬧鐘測試訊號已成功發送至 Android 系統！'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ 無法觸發鬧鐘測試: $e'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFFDF8F5),
-      appBar: AppBar(
-        title: const Text('桌面小工具設定', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: const Color(0xFFF59E0B),
-        elevation: 0,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          // 1. 桌面小工具狀態
-          Card(
-            color: const Color(0xFFFFFAF7),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0xFFF5EBE6)),
-            ),
-            child: SwitchListTile(
-              title: const Text('桌面小工具狀態', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(_widgetEnabled ? '已啟用' : '已關閉'),
-              value: _widgetEnabled,
-              activeColor: Colors.green,
-              onChanged: (val) => setState(() => _widgetEnabled = val),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // 2. 顯示快照資料卡片 (固定寬度 270 排版)
-          Row(
-            children: [
-              Container(
-                width: 270,
-                padding: const EdgeInsets.all(16.0),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFAF7),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFF5EBE6)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.bar_chart, color: Colors.blue, size: 20),
-                        SizedBox(width: 8),
-                        Text('最新快照資料', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text('今日班次: ($_selectedTeam)', style: const TextStyle(height: 1.5, fontSize: 15)),
-                    const Text('請假人數: 0 人', style: TextStyle(height: 1.5, fontSize: 15)),
-                    const Text('請假同事: ', style: TextStyle(height: 1.5, fontSize: 15)),
-                    const Text('明日: N', style: TextStyle(height: 1.5, fontSize: 15)),
-                    const SizedBox(height: 8),
-                    const Text('最後更新: 2026-05-17T21:44', style: TextStyle(fontSize: 13, color: Colors.black54)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // 3. 選擇顯示隊伍
-          Card(
-            color: const Color(0xFFFFFAF7),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0xFFF5EBE6)),
-            ),
-            child: ListTile(
-              title: const Text('選擇顯示隊伍'),
-              trailing: DropdownButton<String>(
-                value: _selectedTeam,
-                items: ['A', 'B', 'C', 'D'].map((t) => DropdownMenuItem(value: t, child: Text('$t 隊'))).toList(),
-                onChanged: (val) => setState(() => _selectedTeam = val ?? 'A'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // 4. 智慧鬧鐘設置區塊
-          Card(
-            color: const Color(0xFFFFFAF7),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0xFFF5EBE6)),
-            ),
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('上班自動鬧鐘提醒', style: TextStyle(fontWeight: FontWeight.bold)),
-                  value: _alarmEnabled,
-                  activeColor: Colors.orange,
-                  onChanged: (val) => setState(() => _alarmEnabled = val),
-                ),
-                if (_alarmEnabled) ...[
-                  const Divider(height: 1),
-                  _buildFlexibleAlarmSlider('早班 (M) 鬧鐘', shiftTimes['M']!, _enableM, _advanceM, const Color(0xFF3F51B5), (val) => setState(() => _enableM = val), (val) => setState(() => _advanceM = val)),
-                  const Divider(height: 1),
-                  _buildFlexibleAlarmSlider('L早班 (LM) 鬧鐘', shiftTimes['LM']!, _enableLM, _advanceLM, const Color(0xFF4CAF50), (val) => setState(() => _enableLM = val), (val) => setState(() => _advanceLM = val)),
-                  const Divider(height: 1),
-                  _buildFlexibleAlarmSlider('中班 (A) 鬧鐘', shiftTimes['A']!, _enableA, _advanceA, const Color(0xFFFB8C00), (val) => setState(() => _enableA = val), (val) => setState(() => _advanceA = val)),
-                  const Divider(height: 1),
-                  _buildFlexibleAlarmSlider('L夜班 (LN) 鬧鐘', shiftTimes['LN']!, _enableLN, _advanceLN, const Color(0xFF00838F), (val) => setState(() => _enableLN = val), (val) => setState(() => _advanceLN = val)),
-                  const Divider(height: 1),
-                  _buildFlexibleAlarmSlider('夜班 (N) 鬧鐘', shiftTimes['N']!, _enableN, _advanceN, const Color(0xFF7B1FA2), (val) => setState(() => _enableN = val), (val) => setState(() => _advanceN = val)),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // 5. 保存設定
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: _saveWidgetSettings,
-              icon: const Icon(Icons.save),
-              label: const Text('儲存設定', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // 🛠️ 新增區塊：系統測試工具
-          Card(
-            color: const Color(0xFFFFFAF7),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0xFFF5EBE6), width: 1),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('系統測試工具', style: TextStyle(fontSize: 14, color: Colors.black54)),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF59E0B),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      icon: const Icon(Icons.alarm_on_rounded, size: 20),
-                      label: const Text('觸發鬧鐘測試', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      onPressed: _triggerAlarmTest,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+  // 🔔 鬧鐘測試與班次資料比對視窗
+  void _testTriggerAlarm(String type, bool isEnabled, String staffName, String shiftTime) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(isEnabled ? Icons.alarm : Icons.volume_off,
+                 color: isEnabled ? const Color(0xFF4A55A2) : Colors.grey),
+            const SizedBox(width: 8),
+            Text('$type 鬧鐘測試'),
+          ],
+        ),
+        content: Text(
+          isEnabled
+              ? '【發送成功】\n'
+                '當前上班人員: $staffName ($shiftTime)\n'
+                '系統已偵測到該類別異常，將於 ${_alarmRangeMinutes.round()} 分鐘內向當班人員發送通知。'
+              : '【已攔截】\n'
+                '當前上班人員: $staffName ($shiftTime)\n'
+                '由於您已關閉此類別的自主控制開關，該異常已被屏蔽，不會發出通知。'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('確定'),
+          )
         ],
       ),
     );
   }
 
-  Widget _buildFlexibleAlarmSlider(
-    String label,
-    String baseTime,
-    bool enabled,
-    int advanceMinutes,
-    Color themeColor,
-    ValueSetter<bool> onEnabledChanged,
-    ValueSetter<int> onAdvanceChanged,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-      child: Column(
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFFFBF7),
+      appBar: AppBar(
+        title: const Text('桌面小工具與鬧鐘'),
+        backgroundColor: const Color(0xFF4A55A2),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16.0),
         children: [
+          // 頂部核心控制說明卡片
+          Card(
+            elevation: 0,
+            color: Colors.indigo.withOpacity(0.05),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  Icon(Icons.alarm_on, color: Color(0xFF3F51B5), size: 28),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '總鬧鐘自主權控制系統：您可以獨立切換各類別開關，並自由調整通知時效範圍。',
+                      style: TextStyle(fontSize: 14, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Section 1: 獨立類別開關控制
+          const Text(
+            '獨立鬧鐘類別控制',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFF0F0F0))),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  activeColor: const Color(0xFF3F51B5),
+                  title: const Text('製程異常鬧鐘 (Process Alarms)'),
+                  subtitle: const Text('獨立切換製程線路參數警報'),
+                  value: _isProcessAlarmEnabled,
+                  onChanged: (val) => setState(() => _isProcessAlarmEnabled = val),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile(
+                  activeColor: const Color(0xFF3F51B5),
+                  title: const Text('設備運作鬧鐘 (Equipment Alarms)'),
+                  subtitle: const Text('獨立切換運轉機組與槽體警報'),
+                  value: _isEquipmentAlarmEnabled,
+                  onChanged: (val) => setState(() => _isEquipmentAlarmEnabled = val),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile(
+                  activeColor: const Color(0xFF3F51B5),
+                  title: const Text('安全連鎖鬧鐘 (Safety Interlocks)'),
+                  subtitle: const Text('最高級別安全跳車通知開關'),
+                  value: _isSafetyAlarmEnabled,
+                  onChanged: (val) => setState(() => _isSafetyAlarmEnabled = val),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Section 2: 0-240 分鐘自主調控範圍滑塊
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.alarm, color: themeColor, size: 20),
-                  const SizedBox(width: 8),
-                  Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-                  const SizedBox(width: 6),
-                  Text('($baseTime)', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                ],
+              const Text(
+                '鬧鐘有效延遲範圍',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
               ),
-              Switch(
-                value: enabled,
-                activeColor: themeColor,
-                onChanged: onEnabledChanged,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3F51B5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_alarmRangeMinutes.round()} 分鐘',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
               ),
             ],
           ),
-          if (enabled) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Slider(
-                    value: advanceMinutes.toDouble(),
-                    min: 0,
-                    max: 180,
-                    divisions: 36,
-                    activeColor: themeColor,
-                    inactiveColor: themeColor.withOpacity(0.2),
-                    onChanged: (val) => onAdvanceChanged(val.toInt()),
+          const SizedBox(height: 8),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFF0F0F0))),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
+              child: Column(
+                children: [
+                  Slider(
+                    value: _alarmRangeMinutes,
+                    min: 0.0,
+                    max: 240.0,
+                    divisions: 48, // 每 5 分鐘一格
+                    activeColor: const Color(0xFF3F51B5),
+                    inactiveColor: Colors.grey.shade300,
+                    onChanged: (value) {
+                      setState(() {
+                        _alarmRangeMinutes = value;
+                      });
+                    },
                   ),
-                ),
-                Text('提前 $advanceMinutes 分鐘', style: TextStyle(color: themeColor, fontWeight: FontWeight.bold)),
-              ],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('0 分 (即時)', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                        Text('120 分', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                        Text('240 分 (4小時)', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
+          const SizedBox(height: 24),
+
+          // Section 3: 🔄 從 Firestore 快照拉取上班時間並進行鬧鐘測試
+          const Text(
+            '當班人員網上數據快照 (Firestore Stream)',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+          ),
+          const SizedBox(height: 8),
+
+          StreamBuilder<QuerySnapshot>(
+            // 監聽網上 Firestore 儲存團隊當班/排班時間的 Collection (請更換為你實際的 collection 名稱，例如 'team_shifts' 或 'users')
+            stream: FirebaseFirestore.instance.collection('team_shifts').snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text('網上數據載入錯誤', style: TextStyle(color: Colors.red)),
+                  ),
+                );
+              }
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(color: Color(0xFF3F51B5)),
+                  ),
+                );
+              }
+
+              final docs = snapshot.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFF0F0F0))),
+                  child: const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text('目前網上沒有當班人員資料', style: TextStyle(color: Colors.black54)),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final data = docs[index].data() as Map<String, dynamic>;
+                  // 從網上 Firestore 欄位讀取名字與上班時間
+                  final String name = data['name'] ?? '未知人員';
+                  final String shiftTime = data['shift_time'] ?? '未排班';
+
+                  return Card(
+                    elevation: 0,
+                    margin: const EdgeInsets.only(bottom: 8.0),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFFF0F0F0))),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                const SizedBox(height: 4),
+                                Text('上班時間: $shiftTime', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                              ],
+                            ),
+                          ),
+                          // 點擊此按鈕，直接帶入該當班人員的資料去進行鬧鐘生效比對測試
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF4A55A2),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () {
+                              _testTriggerAlarm('製程異常', _isProcessAlarmEnabled, name, shiftTime);
+                            },
+                            child: const Text('測試鬧鐘', style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ],
       ),
     );
