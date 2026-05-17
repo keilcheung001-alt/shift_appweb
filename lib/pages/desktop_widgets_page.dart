@@ -15,7 +15,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   bool _isSafetyAlarmEnabled = true;
   double _alarmRangeMinutes = 60.0;
 
-  // 🔔 鬧鐘測試與班次資料比對視窗
+  // 🔔 鬧鐘測試彈窗邏輯
   void _testTriggerAlarm(String type, bool isEnabled, String staffName, String shiftTime) {
     showDialog(
       context: context,
@@ -31,11 +31,11 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         content: Text(
           isEnabled
               ? '【發送成功】\n'
-                '當前上班人員: $staffName ($shiftTime)\n'
-                '系統已偵測到該類別異常，將於 ${_alarmRangeMinutes.round()} 分鐘內向當班人員發送通知。'
+                '當前人員: $staffName ($shiftTime)\n'
+                '系統將於 ${_alarmRangeMinutes.round()} 分鐘內發送延遲通知。'
               : '【已攔截】\n'
-                '當前上班人員: $staffName ($shiftTime)\n'
-                '由於您已關閉此類別的自主控制開關，該異常已被屏蔽，不會發出通知。'
+                '當前人員: $staffName ($shiftTime)\n'
+                '由於您已關閉此開關，該異常已被屏蔽，不會發出通知。'
         ),
         actions: [
           TextButton(
@@ -60,7 +60,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // 頂部核心控制說明卡片
+          // 頂部說明卡片
           Card(
             elevation: 0,
             color: Colors.indigo.withOpacity(0.05),
@@ -122,7 +122,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
           ),
           const SizedBox(height: 24),
 
-          // Section 2: 0-240 分鐘自主調控範圍滑塊
+          // Section 2: 0-240 分鐘範圍滑塊
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -155,7 +155,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     value: _alarmRangeMinutes,
                     min: 0.0,
                     max: 240.0,
-                    divisions: 48, // 每 5 分鐘一格
+                    divisions: 48,
                     activeColor: const Color(0xFF3F51B5),
                     inactiveColor: Colors.grey.shade300,
                     onChanged: (value) {
@@ -181,43 +181,29 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
           ),
           const SizedBox(height: 24),
 
-          // Section 3: 🔄 從 Firestore 快照拉取上班時間並進行鬧鐘測試
+          // Section 3: 網上數據快照 (StreamBuilder)
           const Text(
-            '當班人員網上數據快照 (Firestore Stream)',
+            '網上數據快照',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
           ),
           const SizedBox(height: 8),
 
           StreamBuilder<QuerySnapshot>(
-            // 監聽網上 Firestore 儲存團隊當班/排班時間的 Collection (請更換為你實際的 collection 名稱，例如 'team_shifts' 或 'users')
-            stream: FirebaseFirestore.instance.collection('team_shifts').snapshots(),
+            // 監聽雲端集合（請確保名稱與你資料庫一致）
+            stream: FirebaseFirestore.instance.collection('your_collection').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text('網上數據載入錯誤', style: TextStyle(color: Colors.red)),
-                  ),
-                );
+                return Text('數據載入錯誤: ${snapshot.error}');
               }
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(color: Color(0xFF3F51B5)),
-                  ),
-                );
+                return const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()));
               }
 
               final docs = snapshot.data?.docs ?? [];
               if (docs.isEmpty) {
-                return Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFF0F0F0))),
-                  child: const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text('目前網上沒有當班人員資料', style: TextStyle(color: Colors.black54)),
-                  ),
+                return const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Text('目前網上沒有任何數據。'),
                 );
               }
 
@@ -226,43 +212,30 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  final data = docs[index].data() as Map<String, dynamic>;
-                  // 從網上 Firestore 欄位讀取名字與上班時間
-                  final String name = data['name'] ?? '未知人員';
-                  final String shiftTime = data['shift_time'] ?? '未排班';
+                  final rawData = docs[index].data() as Map<String, dynamic>?;
+                  if (rawData == null) return const SizedBox();
+
+                  // 安全讀取欄位（請自行對應你雲端的欄位 Key）
+                  final String name = rawData['name']?.toString() ?? '未知名稱';
+                  final String shiftTime = rawData['shift_time']?.toString() ?? '未有時間';
 
                   return Card(
-                    elevation: 0,
-                    margin: const EdgeInsets.only(bottom: 8.0),
+                    margin: const EdgeInsets.only(bottom: 8),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFFF0F0F0))),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                const SizedBox(height: 4),
-                                Text('上班時間: $shiftTime', style: const TextStyle(fontSize: 13, color: Colors.black54)),
-                              ],
-                            ),
-                          ),
-                          // 點擊此按鈕，直接帶入該當班人員的資料去進行鬧鐘生效比對測試
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF4A55A2),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            onPressed: () {
-                              _testTriggerAlarm('製程異常', _isProcessAlarmEnabled, name, shiftTime);
-                            },
-                            child: const Text('測試鬧鐘', style: TextStyle(fontSize: 12)),
-                          ),
-                        ],
+                    child: ListTile(
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('上班時間: $shiftTime'),
+                      trailing: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4A55A2),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                        ),
+                        onPressed: () {
+                          // 點擊觸發測試，帶入當前行的數據與開關狀態
+                          _testTriggerAlarm('製程異常', _isProcessAlarmEnabled, name, shiftTime);
+                        },
+                        child: const Text('測試'),
                       ),
                     ),
                   );
