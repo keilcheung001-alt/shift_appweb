@@ -91,7 +91,6 @@ class WidgetSnapshotWriter {
         final nicknames = (data['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
         final reasons = (data['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
 
-        // ✅ 智能格式化：別名優先 + 提取原因代號（短碼）
         final leaversWithDetails = <String>[];
         for (int i = 0; i < names.length; i++) {
           final name = names[i];
@@ -102,18 +101,13 @@ class WidgetSnapshotWriter {
           if (i < reasons.length) {
             String raw = reasons[i];
             if (raw.isNotEmpty) {
-              // 情況1：格式係 "AL-病假" → 取最後一段（用戶寫嘅原因）
               if (raw.contains('-')) {
                 reasonCode = raw.split('-').last;
-              }
-              // 情況2：格式係 "病假 (V)" 或 "病假（SL）" → 取括號內
-              else if (raw.contains('(') && raw.contains(')')) {
+              } else if (raw.contains('(') && raw.contains(')')) {
                 reasonCode = raw.substring(raw.indexOf('(') + 1, raw.indexOf(')'));
               } else if (raw.contains('（') && raw.contains('）')) {
                 reasonCode = raw.substring(raw.indexOf('（') + 1, raw.indexOf('）'));
-              }
-              // 情況3：無括號、無中劃線 → 取頭兩個字（例如 "事假" -> "事假"）
-              else {
+              } else {
                 reasonCode = raw.length > 2 ? raw.substring(0, 2) : raw;
               }
             }
