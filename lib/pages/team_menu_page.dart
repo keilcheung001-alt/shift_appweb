@@ -9,16 +9,18 @@ import 'cancel_leave_request_page.dart';
 import 'announcement_page.dart';
 import 'whatsapp_config_page.dart';
 
-class TeamMenuPage extends StatefulWidget {
+class TeamMenuPage extends Widget {
   final String? role;
   final String? staffId;
-  final String? group; // 🟢 補回接收 group 參數，對齊 main.dart 同 login_page.dart
+  final String? group;
+  final bool? canFullEdit; // 🟢 補回接收 canFullEdit 參數，完美對齊 main.dart 同 login_page.dart
 
   const TeamMenuPage({
     super.key,
     this.role,
     this.staffId,
-    this.group, // 🟢 補回參數
+    this.group,
+    this.canFullEdit, // 🟢 補回參數
   });
 
   @override
@@ -39,7 +41,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   Future<void> _loadUserTeam() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      // 如果有傳入 group 參數就優先用，冇就讀 local 緩存
+      // 優先使用外面傳入嚟嘅 group 參數，冇就讀 local 緩存
       _currentTeam = widget.group ?? prefs.getString(SPK_GROUP) ?? 'A';
       _isLoading = false;
     });
@@ -156,7 +158,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                         MaterialPageRoute(
                           builder: (context) => AnnouncementPage(
                             team: _currentTeam,
-                            canEdit: widget.role == 'admin',
+                            canEdit: widget.role == 'admin' || (widget.canFullEdit ?? false),
                           ),
                         ),
                       );
@@ -167,7 +169,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
-                      // 🟢 修正：徹底移除 MaterialPageRoute 前面漏網之魚嘅 const 關鍵字
+                      // 🟢 修正：徹底將 MaterialPageRoute 裡面嘅所有 const 關聯字清除，避免動態跳轉報錯
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => const WhatsappConfigPage()),
