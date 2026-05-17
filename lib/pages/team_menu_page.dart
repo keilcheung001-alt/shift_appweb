@@ -7,16 +7,15 @@ import '../constants/constants.dart';
 import 'my_leave_page.dart';
 import 'cancel_leave_request_page.dart';
 import 'announcement_page.dart';
-import 'whatsapp_config_page.dart';
-import '../screens/login_page.dart'; // 🟢 補回引入登入頁面，供登出跳轉使用
+import 'whatsapp_config_page.dart'; // 🟢 引入大寫的 WhatsAppConfigPage
+import '../screens/login_page.dart';
 
-// 🟢 修正：原本寫錯成extends Widget，改回正確的 StatefulWidget
 class TeamMenuPage extends StatefulWidget {
   final String? role;
   final String? staffId;
   final String? group;
   final bool? canFullEdit;
-  final bool? isSuperAdmin; // 🟢 補齊 main.dart 傳進來的參數
+  final bool? isSuperAdmin;
 
   const TeamMenuPage({
     super.key,
@@ -50,10 +49,9 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     });
   }
 
-  // 🟢 補回登出功能邏輯
   Future<void> _handleLogout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear(); // 清除本機登入緩存，確保下次不會自動跳過登入頁面
+    await prefs.clear();
     if (mounted) {
       Navigator.pushReplacement(
         context,
@@ -76,7 +74,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
         actions: [
-          // 🟢 補回右上角「登出」掣，解決你卡在畫面出不去的問題！
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: '登出系統',
@@ -89,7 +86,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🟢 補回 ABCD 更隊伍手動切換按鈕組
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: ['A', 'B', 'C', 'D'].map((team) {
@@ -142,17 +138,14 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                           final today = DateTime.now();
                           final date = DateTime(today.year, today.month, index - 2);
 
-                          // 🟢 調用你原始的 ShiftCalculator 邏輯來精準獲取六個班次與顏色
                           final shiftCode = ShiftCalculator.calculateShift(_currentTeam, date);
                           final isRest = ShiftCalculator.isRestDay(shiftCode);
-                          final color = ShiftCalculator.getShiftColor(shiftCode); // 🎯 100% 直接使用你文件內的 6 更核心色彩
+                          final color = ShiftCalculator.getShiftColor(shiftCode);
 
                           return Container(
                             margin: const EdgeInsets.all(2),
                             decoration: BoxDecoration(
-                              // 🎨 根據你截圖的配色：放假用淺灰，返工用原配色的極淡底色襯托
                               color: isRest ? Colors.grey.shade100 : color.withOpacity(0.06),
-                              // 🎨 100% 復原你要求的「每一間不同顏色邊框（Color Border）」
                               border: Border.all(
                                 color: isRest ? Colors.grey.shade300 : color.withOpacity(0.5),
                                 width: 1.5,
@@ -172,7 +165,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
-                                    color: isRest ? Colors.grey : color, // 🎨 文字也100%對其原始顏色
+                                    color: isRest ? Colors.grey : color,
                                   ),
                                 ),
                               ],
@@ -234,10 +227,10 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
-                      // 🟢 修正：徹底移除 const，對應動態路由跳轉
+                      // 🟢 徹底修正：完全拿走 const，並用項目內大寫 WhatsAppConfigPage 正常跳轉
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const WhatsappConfigPage()),
+                        MaterialPageRoute(builder: (context) => WhatsAppConfigPage()),
                       );
                     },
                   ),
