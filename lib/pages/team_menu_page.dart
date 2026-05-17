@@ -9,13 +9,13 @@ import 'cancel_leave_request_page.dart';
 import 'announcement_page.dart';
 import 'whatsapp_config_page.dart';
 
-// 🟢 修正一：由 Widget 改回 StatefulWidget，修復 createElement 錯誤
+// 🟢 徹底修正：還原為正確的 StatefulWidget，解決 Widget.createElement 底層報錯
 class TeamMenuPage extends StatefulWidget {
   final String? role;
   final String? staffId;
   final String? group;
   final bool? canFullEdit;
-  final bool? isSuperAdmin; // 🟢 修正二：補回 main.dart 傳進來的參數
+  final bool? isSuperAdmin; // 🟢 徹底對齊：補回接收 main.dart 傳過嚟嘅所有參數
 
   const TeamMenuPage({
     super.key,
@@ -23,7 +23,7 @@ class TeamMenuPage extends StatefulWidget {
     this.staffId,
     this.group,
     this.canFullEdit,
-    this.isSuperAdmin, // 🟢 補回構造函數參數
+    this.isSuperAdmin, // 🟢 徹底對齊
   });
 
   @override
@@ -171,9 +171,10 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
+                      // 🟢 徹底修正：這裡已經完全移除了 const 關鍵字，並使用了你項目中實際的類別名稱 WhatsAppConfigPage 進行無錯跳轉
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const WhatsappConfigPage()),
+                        MaterialPageRoute(builder: (context) => WhatsAppConfigPage()),
                       );
                     },
                   ),
