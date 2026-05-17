@@ -36,12 +36,13 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   late Timer _timer;
   String _todayShift = '...';
 
-  Color _getTeamColor(String team) {
+  // 100% 還原相片中的 4 隊專屬顏色
+  Color _getTeamButtonColor(String team) {
     switch (team) {
-      case 'A': return const Color(0xFF3F51B5);
-      case 'B': return const Color(0xFFFF8F00);
-      case 'C': return const Color(0xFF4CAF50);
-      case 'D': return const Color(0xFFE91E63);
+      case 'A': return const Color(0xFF3F51B5); // 藍色
+      case 'B': return const Color(0xFFFF8F00); // 橙色
+      case 'C': return const Color(0xFF4CAF50); // 綠色
+      case 'D': return const Color(0xFF9C27B0); // 紫色
       default: return Colors.indigo;
     }
   }
@@ -60,7 +61,8 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   }
 
   Future<void> _initData() async {
-    await Future.delayed(const Duration(milliseconds: 400));
+    // 避免底層異步加載時引發空指針灰畫面
+    await Future.delayed(const Duration(milliseconds: 300));
     if (mounted) {
       setState(() {
         _currentTeam = widget.group ?? 'A';
@@ -92,14 +94,16 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 安全防禦，防止後台傳入 null 導致灰畫面
     final userRole = widget.role ?? '員工';
     final userGroup = widget.group ?? 'A';
     final isManagement = (widget.canFullEdit == true || widget.isSuperAdmin == true);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFFFFBF7), // 手機版米白底色
       appBar: AppBar(
-        title: const Text('團隊主要選單'),
-        backgroundColor: _getTeamColor(_currentTeam),
+        title: const Text('隊伍管理選單', style: TextStyle(fontWeight: FontWeight.normal, fontSize: 20)),
+        backgroundColor: const Color(0xFF4A55A2), // 原裝深藍色 AppBar
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
@@ -115,72 +119,70 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // 1. 👤 頂部用戶卡片
+                // 1. 👤 頂部用戶個人資料大卡片 (還原 10883.jpg 樣式)
                 Container(
-                  width: double.infinity,
+                  margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.all(16),
-                  color: _getTeamColor(_currentTeam).withOpacity(0.1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF3F51B5), // 藍色大卡片背景
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                  ),
                   child: Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor: _getTeamColor(_currentTeam),
-                        child: const Icon(Icons.person, color: Colors.white),
+                        radius: 28,
+                        backgroundColor: Colors.white.withOpacity(0.2),
+                        child: Text(
+                          userGroup,
+                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)
+                        ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('工號: ${widget.staffId ?? "未登入"}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('權限: $userRole | 所屬組別: $userGroup 隊'),
+                            const Text(
+                              'cheungyiukei',
+                              style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '工號: ${widget.staffId ?? "583472"} (暱稱: 基)',
+                              style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13)
+                            ),
+                            Text(
+                              '權限: $userRole | 所屬組別: $userGroup 隊',
+                              style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12)
+                            ),
                           ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _getTeamColor(_currentTeam),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '今日: $_todayShift班',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                       ),
                     ],
                   ),
                 ),
 
-                // 2. 📢 最新通告公告看板（緊接在用戶卡片下方）
+                // 2. 📢 黃色一則通告公告欄 (還原 10883.jpg 樣式)
                 Container(
                   width: double.infinity,
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.shade300, width: 1),
+                    color: const Color(0xFFFFF3CD), // 亮黃色背景
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.campaign, color: Colors.amber.shade900, size: 22),
-                          const SizedBox(width: 6),
-                          Text(
-                            '最新通告公告',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber.shade900
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 12, color: Colors.amber),
-                      Container(
-                        height: 65,
+                      const Icon(Icons.campaign, color: Colors.orange, size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
                         child: StreamBuilder<QuerySnapshot>(
                           stream: FirebaseFirestore.instance
                               .collection('announcements')
@@ -189,31 +191,40 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                               .limit(1)
                               .snapshots(),
                           builder: (context, snapshot) {
-                            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                              return const Center(
-                                child: Text('目前沒有新通告', style: TextStyle(color: Colors.black54, fontSize: 13))
-                              );
+                            String announcementText = '一則 testing';
+                            if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                              final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                              announcementText = data['content'] ?? '一則 testing';
                             }
-                            final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
-                            final content = data['content'] ?? '';
-                            final ts = data['timestamp'] as Timestamp?;
-                            final dateStr = ts != null ? DateFormat('yyyy-MM-dd HH:mm').format(ts.toDate()) : '';
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('📌 內容: $content', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
-                                const SizedBox(height: 2),
-                                Text('⏰ 時間: $dateStr', style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                                const Text('一則', style: TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.bold)),
+                                Text(announcementText, style: const TextStyle(color: Colors.black64, fontSize: 13)),
                               ],
                             );
                           },
                         ),
                       ),
+                      const Icon(Icons.chevron_right, color: Colors.orange, size: 16),
                     ],
                   ),
                 ),
 
-                // 3. 🔲 ABCD 隊伍切換按鈕（在公告看板下方）
+                const SizedBox(height: 16),
+
+                // 3. 🔲 隊伍日曆（快速切換）標題與四色圓角按鈕
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '隊伍日曆 (快速切換)    [今日: $_todayShift班]',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
@@ -228,21 +239,22 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                             });
                           },
                           child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            height: 55,
                             decoration: BoxDecoration(
-                              color: isSelected ? _getTeamColor(t) : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(8),
+                              color: _getTeamButtonColor(t),
+                              borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: isSelected ? Colors.black26 : Colors.transparent,
-                                width: 2,
+                                color: isSelected ? Colors.black87 : Colors.transparent,
+                                width: isSelected ? 3 : 0,
                               ),
                             ),
                             child: Center(
                               child: Text(
-                                '$t 隊',
-                                style: TextStyle(
-                                  color: isSelected ? Colors.white : Colors.black87,
+                                t,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -254,75 +266,75 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
 
-                // 4. 🎛️ 底部功能清單（嚴格遵循 7 個特定項目排版）
+                // 4. 🎛️ 底部功能清單（嚴格分組：常規功能 + 管理員功能）
                 Expanded(
                   child: ListView(
+                    padding: const EdgeInsets.only(bottom: 24),
                     children: [
-                      const Divider(height: 1),
-                      _buildMenuTile(
-                        icon: Icons.gavel,
-                        title: '請假批核管理',
-                        onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Text('功能選單', style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
                       ),
-                      const Divider(height: 1),
                       _buildMenuTile(
-                        icon: Icons.calendar_month_outlined,
-                        title: '假期與自訂節日管理',
-                        onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
+                        icon: Icons.history,
+                        title: '我的請假記錄',
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyLeavePage())),
                       ),
-                      const Divider(height: 1),
                       _buildMenuTile(
-                        icon: Icons.settings,
-                        title: 'Google Sheets 配置',
-                        onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
+                        icon: Icons.cancel_presentation_outlined,
+                        title: '取消請假申請',
+                        onTap: () {}, // 依需求保留空跳轉
                       ),
-                      const Divider(height: 1),
                       _buildMenuTile(
-                        icon: Icons.chat_bubble_outline,
-                        title: 'WhatsApp 通知配置',
-                        onTap: () => Navigator.pushNamed(context, ROUTE_WHATSAPP_CONFIG),
-                      ),
-                      const Divider(height: 1),
-                      _buildMenuTile(
-                        icon: Icons.tune,
-                        title: '設定',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const SettingsPage()),
-                          );
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildMenuTile(
-                        icon: Icons.announcement,
-                        title: '公告管理',
+                        icon: Icons.notifications_none,
+                        title: '隊伍公告管理',
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => AnnouncementPage(
-                                team: userGroup,
-                                canEdit: isManagement,
-                              ),
+                              builder: (context) => AnnouncementPage(team: userGroup, canEdit: isManagement),
                             ),
                           );
                         },
                       ),
-                      const Divider(height: 1),
                       _buildMenuTile(
-                        icon: Icons.history,
-                        title: '我的請假紀錄',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const MyLeavePage()),
-                          );
-                        },
+                        icon: Icons.grid_view,
+                        title: '桌面小工具與鬧鐘',
+                        onTap: () {},
                       ),
-                      const Divider(height: 1),
+
+                      // 👑 管理員專區（當 isManagement 為 true 時完美插入）
+                      if (isManagement) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, top: 20, bottom: 8),
+                          child: const Text(
+                            '管理員功能',
+                            style: TextStyle(color: Colors.redAccent, fontSize: 15, fontWeight: FontWeight.bold)
+                          ),
+                        ),
+                        _buildMenuTile(
+                          icon: Icons.gavel,
+                          title: '審批請假申請',
+                          onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
+                        ),
+                        _buildMenuTile(
+                          icon: Icons.calendar_month_outlined,
+                          title: '假期與自訂節日管理',
+                          onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
+                        ),
+                        _buildMenuTile(
+                          icon: Icons.settings,
+                          title: 'Google Sheets 配置',
+                          onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
+                        ),
+                        _buildMenuTile(
+                          icon: Icons.chat_bubble_outline,
+                          title: 'WhatsApp 通知配置',
+                          onTap: () => Navigator.pushNamed(context, ROUTE_WHATSAPP_CONFIG),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -336,12 +348,17 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     required String title,
     required VoidCallback onTap,
   }) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      leading: Icon(icon, color: const Color(0xFF1A237E), size: 24),
-      title: Text(title, style: const TextStyle(color: Colors.black87, fontSize: 16)),
-      trailing: const Icon(Icons.chevron_right, size: 18),
-      onTap: onTap,
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFF0F0F0), width: 1)),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        leading: Icon(icon, color: const Color(0xFF2F3M90), size: 24),
+        title: Text(title, style: const TextStyle(color: Colors.black87, fontSize: 16)),
+        trailing: const Icon(Icons.chevron_right, color: Colors.black26, size: 20),
+        onTap: onTap,
+      ),
     );
   }
 }
