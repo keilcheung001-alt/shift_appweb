@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/shift_calculator.dart';
 import '../constants/constants.dart';
 import 'my_leave_page.dart';
@@ -8,28 +9,64 @@ import 'announcement_page.dart';
 import 'desktop_widgets_page.dart';
 
 class TeamMenuPage extends StatefulWidget {
-  final String? role;
-  final String? staffId;
-  final String? group;
-  final bool? canFullEdit;
-  final bool? isSuperAdmin;
-
-  const TeamMenuPage({
-    super.key,
-    this.role,
-    this.staffId,
-    this.group,
-    this.canFullEdit,
-    this.isSuperAdmin,
-  });
+  const TeamMenuPage({super.key});
 
   @override
   State<TeamMenuPage> createState() => _TeamMenuPageState();
 }
 
 class _TeamMenuPageState extends State<TeamMenuPage> {
-  String _currentTeam = 'A';
-  String _todayShift = '常班';
+  String _currentTeam = '';
+  String _todayShift = '';
+  String _userName = '';
+  String _userNickname = '';
+  String _userStaffId = '';
+  String _userRole = '';
+  String _userGroup = '';
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final group = prefs.getString(SPK_GROUP);
+      final staffId = prefs.getString(SPK_STAFF_ID);
+      final name = prefs.getString(SPK_MY_NAME);
+      final nickname = prefs.getString(SPK_NICKNAME);
+      final permission = prefs.getString(SPK_PERMISSION_CODE);
+
+      if (group == null || staffId == null || name == null) {
+        throw Exception('SharedPreferences 缺少必要資料');
+      }
+
+      setState(() {
+        _userGroup = group;
+        _userStaffId = staffId;
+        _userName = name;
+        _userNickname = (nickname != null && nickname.isNotEmpty) ? nickname : name;
+        _userRole = (permission == 'ADMIN') ? '隊長' : '員工';
+        _currentTeam = group;
+        _isLoading = false;
+      });
+
+      try {
+        _todayShift = ShiftCalculator.calculateShift(group, DateTime.now());
+      } catch (e) {
+        _todayShift = '計算錯誤';
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
 
   Color _getTeamButtonColor(String team) {
     switch (team) {
@@ -42,21 +79,21 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    final safeGroup = (widget.group == null || widget.group!.isEmpty) ? 'A' : widget.group!;
-    _currentTeam = safeGroup;
-    try {
-      _todayShift = ShiftCalculator.calculateShift(safeGroup, DateTime.now());
-    } catch (_) {
-      _todayShift = '常班';
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final userRole = widget.role ?? '員工';
-    final userGroup = (widget.group == null || widget.group!.isEmpty) ? 'A' : widget.group!;
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFFFFBF7),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFFFBF7),
+        appBar: AppBar(title: const Text('隊伍管理選單'), backgroundColor: const Color(0xFF4A55A2)),
+        body: Center(child: Text('載入失敗: $_errorMessage')),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFFBF7),
@@ -86,17 +123,17 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                 CircleAvatar(
                   radius: 28,
                   backgroundColor: Colors.white.withOpacity(0.2),
-                  child: Text(userGroup, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                  child: Text(_userGroup, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('cheungyiukei', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                      Text(_userName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text('工號: ${widget.staffId ?? "583472"} (暱稱: 基)', style: const TextStyle(color: Colors.white, fontSize: 13)),
-                      Text('權限: $userRole | 所屬組別: $userGroup 隊', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      Text('工號: $_userStaffId (暱稱: $_userNickname)', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                      Text('權限: $_userRole | 所屬組別: $_userGroup 隊', style: const TextStyle(color: Colors.white, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -124,16 +161,19 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                         .limit(1)
                         .snapshots(),
                     builder: (context, snapshot) {
-                      String txt = '一則 testing';
-                      if (snapshot.hasData && snapshot.data != null && snapshot.data!.docs.isNotEmpty) {
-                        final d = snapshot.data!.docs.first.data() as Map<String, dynamic>?;
-                        if (d != null) txt = d['content']?.toString() ?? '一則 testing';
+                      if (snapshot.hasError) {
+                        return Text('錯誤: ${snapshot.error}', style: const TextStyle(color: Colors.red, fontSize: 12));
                       }
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Text('暫無公告', style: TextStyle(color: Colors.black54));
+                      }
+                      final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                      final content = data['content']?.toString() ?? '（無內容）';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('一則', style: TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.bold)),
-                          Text(txt, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                          const Text('最新公告', style: TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.bold)),
+                          Text(content, style: const TextStyle(color: Colors.black54, fontSize: 13)),
                         ],
                       );
                     },
@@ -148,7 +188,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('隊伍日曆 (快速切換)    [今日: $_todayShift班]', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              child: Text('隊伍日曆 (快速切換)    [今日: $_todayShift]', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
           ),
           const SizedBox(height: 10),
@@ -159,11 +199,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                 final isSelected = _currentTeam == t;
                 return Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _currentTeam = t;
-                      });
-                    },
+                    onTap: () => setState(() => _currentTeam = t),
                     child: Container(
                       margin: const EdgeInsets.symmetric(horizontal: 6),
                       height: 55,
@@ -196,9 +232,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                 _buildMenuTile(
                   icon: Icons.notifications_none,
                   title: '隊伍公告管理',
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => AnnouncementPage(team: userGroup, canEdit: true)));
-                  },
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => AnnouncementPage(team: _userGroup, canEdit: true))),
                 ),
                 _buildMenuTile(
                   icon: Icons.grid_view,
