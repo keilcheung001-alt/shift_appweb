@@ -8,14 +8,15 @@ import 'my_leave_page.dart';
 import 'cancel_leave_request_page.dart';
 import 'announcement_page.dart';
 import 'whatsapp_config_page.dart';
+import '../screens/login_page.dart'; // 🟢 引入登入頁，等一陣登出可以強制跳轉翻去
 
-// 🟢 徹底修正：還原為正確的 StatefulWidget，解決 Widget.createElement 底層報錯
+// 🟢 修正一：基礎類別必須是 StatefulWidget，原本寫錯成 Widget 導致底層大崩潰
 class TeamMenuPage extends StatefulWidget {
   final String? role;
   final String? staffId;
   final String? group;
   final bool? canFullEdit;
-  final bool? isSuperAdmin; // 🟢 徹底對齊：補回接收 main.dart 傳過嚟嘅所有參數
+  final bool? isSuperAdmin; // 🟢 修正二：補齊接收 main.dart 傳過嚟嘅所有權限參數
 
   const TeamMenuPage({
     super.key,
@@ -23,7 +24,7 @@ class TeamMenuPage extends StatefulWidget {
     this.staffId,
     this.group,
     this.canFullEdit,
-    this.isSuperAdmin, // 🟢 徹底對齊
+    this.isSuperAdmin, // 🟢 補齊參數
   });
 
   @override
@@ -44,9 +45,22 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   Future<void> _loadUserTeam() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
+      // 優先使用外面傳進來的組別，如果沒有才讀取本地緩存，預設為 A
       _currentTeam = widget.group ?? prefs.getString(SPK_GROUP) ?? 'A';
       _isLoading = false;
     });
+  }
+
+  // 🟢 修正三：新增「安全登出邏輯」—— 清除緩存並退回登入畫面
+  Future<void> _handleLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear(); // 清除儲存的 staffId 狀態，等下次開 App 唔會再全自動跳過登入頁
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+      );
+    }
   }
 
   @override
@@ -61,12 +75,49 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
       appBar: AppBar(
         title: Text('$_currentTeam 隊 更表與管理'),
         backgroundColor: Colors.orange,
+        foregroundColor: Colors.white,
+        actions: [
+          // 🟢 修正四：AppBar 右上角正式加返「登出按鈕」，點擊即可手動退回登入畫面！
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: '登出系統',
+            onPressed: _handleLogout,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 🟢 修正五：在頂部硬性補回「A、B、C、D 隊伍切換按鈕組」，想睇邊隊直接撳就得！
+            const Text(
+              '切換顯示隊伍更表：',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: ['A', 'B', 'C', 'D'].map((team) {
+                final isSelected = _currentTeam == team;
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isSelected ? Colors.orange : Colors.grey.shade200,
+                    foregroundColor: isSelected ? Colors.white : Colors.black87,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _currentTeam = team; // 撳完即時刷新更表數據
+                    });
+                  },
+                  child: Text('$team 隊', style: const TextStyle(fontWeight: FontWeight.bold)),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+
             const Text(
               '📅 廠房排班月曆 (手勢放大縮小)',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -171,7 +222,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
-                      // 🟢 徹底修正：這裡已經完全移除了 const 關鍵字，並使用了你項目中實際的類別名稱 WhatsAppConfigPage 進行無錯跳轉
+                      // 🟢 修正六：徹底拿走 const，並改回項目中實際存在的 WhatsAppConfigPage 正確大寫名稱
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => WhatsAppConfigPage()),
