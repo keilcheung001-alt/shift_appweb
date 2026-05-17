@@ -7,13 +7,8 @@ import '../utils/shift_calculator.dart';
 import '../constants/constants.dart';
 import 'my_leave_page.dart';
 import 'announcement_page.dart';
-import 'settings_page.dart'; // 🌐 確保能安全跳轉到設定
+import 'settings_page.dart';
 import '../screens/login_page.dart';
-
-import 'full_calendar_a.dart';
-import 'full_calendar_b.dart';
-import 'full_calendar_c.dart';
-import 'full_calendar_d.dart';
 
 class TeamMenuPage extends StatefulWidget {
   final String? role;
@@ -38,9 +33,8 @@ class TeamMenuPage extends StatefulWidget {
 class _TeamMenuPageState extends State<TeamMenuPage> {
   String _currentTeam = 'A';
   bool _isLoading = true;
-
   late Timer _timer;
-  String _todayShift = '加載中…';
+  String _todayShift = '...';
 
   Color _getTeamColor(String team) {
     switch (team) {
@@ -96,20 +90,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     }
   }
 
-  Widget _buildCalendarView(String team) {
-    final sId = widget.staffId ?? '0000';
-    final edit = widget.canFullEdit ?? false;
-    final admin = widget.isSuperAdmin ?? false;
-
-    switch (team) {
-      case 'A': return FullCalendarATeam(staffId: sId, canFullEdit: edit, isSuperAdmin: admin);
-      case 'B': return FullCalendarBTeam(staffId: sId, canFullEdit: edit, isSuperAdmin: admin);
-      case 'C': return FullCalendarCTeam(staffId: sId, canFullEdit: edit, isSuperAdmin: admin);
-      case 'D': return FullCalendarDTeam(staffId: sId, canFullEdit: edit, isSuperAdmin: admin);
-      default: return const Center(child: Text('未知隊伍'));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final userRole = widget.role ?? '員工';
@@ -135,7 +115,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // 1. 頂部用戶個人資料卡片
+                // 1. 👤 頂部用戶卡片
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
@@ -171,9 +151,69 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                // 2. 📢 最新通告公告看板（緊接在用戶卡片下方）
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade300, width: 1),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.campaign, color: Colors.amber.shade900, size: 22),
+                          const SizedBox(width: 6),
+                          Text(
+                            '最新通告公告',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amber.shade900
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 12, color: Colors.amber),
+                      Container(
+                        height: 65,
+                        child: StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('announcements')
+                              .where('targetTeam', isEqualTo: _currentTeam)
+                              .orderBy('timestamp', descending: true)
+                              .limit(1)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                              return const Center(
+                                child: Text('目前沒有新通告', style: TextStyle(color: Colors.black54, fontSize: 13))
+                              );
+                            }
+                            final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                            final content = data['content'] ?? '';
+                            final ts = data['timestamp'] as Timestamp?;
+                            final dateStr = ts != null ? DateFormat('yyyy-MM-dd HH:mm').format(ts.toDate()) : '';
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('📌 內容: $content', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                                const SizedBox(height: 2),
+                                Text('⏰ 時間: $dateStr', style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-                // 2. ABCD 四個切換隊伍按鈕
+                // 3. 🔲 ABCD 隊伍切換按鈕（在公告看板下方）
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
@@ -189,7 +229,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                           },
                           child: Container(
                             margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
                               color: isSelected ? _getTeamColor(t) : Colors.grey.shade200,
                               borderRadius: BorderRadius.circular(8),
@@ -214,129 +254,78 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
 
-                // 3. 📅 核心大月曆（回歸最原始的原裝自適應 Extended 佈局）
+                // 4. 🎛️ 底部功能清單（嚴格遵循 7 個特定項目排版）
                 Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.all(12),
-                    padding: const EdgeInsets.all(8.0),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFEEEEEE)),
-                    ),
-                    child: _buildCalendarView(_currentTeam),
+                  child: ListView(
+                    children: [
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.gavel,
+                        title: '請假批核管理',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
+                      ),
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.calendar_month_outlined,
+                        title: '假期與自訂節日管理',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
+                      ),
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.settings,
+                        title: 'Google Sheets 配置',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
+                      ),
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.chat_bubble_outline,
+                        title: 'WhatsApp 通知配置',
+                        onTap: () => Navigator.pushNamed(context, ROUTE_WHATSAPP_CONFIG),
+                      ),
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.tune,
+                        title: '設定',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const SettingsPage()),
+                          );
+                        },
+                      ),
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.announcement,
+                        title: '公告管理',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => AnnouncementPage(
+                                team: userGroup,
+                                canEdit: isManagement,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const Divider(height: 1),
+                      _buildMenuTile(
+                        icon: Icons.history,
+                        title: '我的請假紀錄',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const MyLeavePage()),
+                          );
+                        },
+                      ),
+                      const Divider(height: 1),
+                    ],
                   ),
                 ),
-
-                // 4. 🎛️ 底部功能選單（精準還原 7 個項目）
-                if (!isManagement) ...[
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.add),
-                            label: const Text('申請請假'),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => const MyLeavePage()),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.announcement),
-                            label: const Text('查看公告'),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => AnnouncementPage(
-                                    team: userGroup,
-                                    canEdit: isManagement,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ] else ...[
-                  // 👑 扣除「取消請假」後，100% 依相片精準排列的 7 個原裝選單項目
-                  Expanded(
-                    child: ListView(
-                      children: [
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.gavel,
-                          title: '請假批核管理',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
-                        ),
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.calendar_month_outlined,
-                          title: '假期與自訂節日管理',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
-                        ),
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.settings,
-                          title: 'Google Sheets 配置',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
-                        ),
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.chat_bubble_outline,
-                          title: 'WhatsApp 通知配置',
-                          onTap: () => Navigator.pushNamed(context, ROUTE_WHATSAPP_CONFIG),
-                        ),
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.tune,
-                          title: '設定',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const SettingsPage()),
-                            );
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.announcement,
-                          title: '公告管理',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => AnnouncementPage(
-                                  team: userGroup,
-                                  canEdit: isManagement,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildMenuTile(
-                          icon: Icons.logout,
-                          title: '登出',
-                          onTap: () {
-                            Navigator.pushReplacementNamed(context, ROUTE_LOGIN);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ),
     );
