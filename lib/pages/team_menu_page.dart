@@ -1,166 +1,211 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'desktop_widgets_page.dart';
+import 'full_calendar_a.dart';
+import 'full_calendar_b.dart';
+import 'full_calendar_c.dart';
+import 'full_calendar_d.dart';
 import '../constants/constants.dart';
 
-class TeamCalendarPage extends StatefulWidget {
-  const TeamCalendarPage({super.key});
+class TeamMenuPage extends StatefulWidget {
+  const TeamMenuPage({super.key});
 
   @override
-  State<TeamCalendarPage> createState() => _TeamCalendarPageState();
+  State<TeamMenuPage> createState() => _TeamMenuPageState();
 }
 
-class _TeamCalendarPageState extends State<TeamCalendarPage> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _TeamMenuPageState extends State<TeamMenuPage> {
+  String _staffId = '';
   String _myGroup = 'A';
-  String _myRealName = '';
-  String _myStaffId = '';
+  bool _isSuperAdmin = false;
+  bool _canFullEdit = false;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
     _loadUserInfo();
   }
 
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
+      _staffId = prefs.getString(SPK_STAFF_ID) ?? '';
       _myGroup = prefs.getString(SPK_GROUP) ?? 'A';
-      _myRealName = prefs.getString(SPK_MY_NAME) ?? '';
-      _myStaffId = prefs.getString(SPK_STAFF_ID) ?? '';
 
-      // 根據用戶所屬隊伍，預設切換到該隊的 Tab (A=0, B=1, C=2, D=3)
-      int defaultIndex = ['A', 'B', 'C', 'D'].indexOf(_myGroup);
-      if (defaultIndex != -1) {
-        _tabController.index = defaultIndex;
-      }
+      _isSuperAdmin = (_staffId == 'admin' || _staffId == '666666');
+      _canFullEdit = _isSuperAdmin || (_staffId == '888888');
       _loading = false;
     });
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  void _navigateToTeamCalendar(String teamCode) {
+    Widget targetPage;
+    switch (teamCode) {
+      case 'A':
+        targetPage = FullCalendarATeam(staffId: _staffId, canFullEdit: _canFullEdit, isSuperAdmin: _isSuperAdmin);
+        break;
+      case 'B':
+        targetPage = FullCalendarBTeam(staffId: _staffId, canFullEdit: _canFullEdit, isSuperAdmin: _isSuperAdmin);
+        break;
+      case 'C':
+        targetPage = FullCalendarCTeam(staffId: _staffId, canFullEdit: _canFullEdit, isSuperAdmin: _isSuperAdmin);
+        break;
+      case 'D':
+        targetPage = FullCalendarDTeam(staffId: _staffId, canFullEdit: _canFullEdit, isSuperAdmin: _isSuperAdmin);
+        break;
+      default:
+        return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => targetPage),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final Map<String, Color> teamColors = {
+      'A': Colors.blue.shade700,
+      'B': Colors.green.shade700,
+      'C': Colors.purple.shade700,
+      'D': Colors.orange.shade700,
+    };
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('團隊月曆更表總覽'),
-        backgroundColor: Colors.indigo,
+        title: const Text('廠房團隊選單'),
+        backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.orange,
-          tabs: const [
-            Tab(text: 'A 隊更表'),
-            Tab(text: 'B 隊更表'),
-            Tab(text: 'C 隊更表'),
-            Tab(text: 'D 隊更表'),
-          ],
-        ),
         actions: [
-          // 📱 右上角保留按鈕，畀大家有需要時入去設定小工具跟鬧鐘
           IconButton(
-            icon: const Icon(Icons.add_alarm, title: '小工具與鬧鐘設定'),
+            icon: const Icon(Icons.add_alarm),
+            tooltip: '小工具與鬧鐘設定', // ⚙️ 精準修復：由 title 改回正確的 tooltip
             onPressed: () {
-              Navigator.pushNamed(context, ROUTE_DESKTOP_WIDGETS);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const DesktopWidgetsPage()),
+              );
             },
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildCalendarGrid('A'),
-          _buildCalendarGrid('B'),
-          _buildCalendarGrid('C'),
-          _buildCalendarGrid('D'),
-        ],
-      ),
-    );
-  }
-
-  // 🗓️ 建立核心的月曆表格（真實數據對碰，完全看得到真名）
-  Widget _buildCalendarGrid(String teamLetter) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.between,
-            children: [
-              Text('📊 當前檢視：$teamLetter 隊動態', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              if (teamLetter == _myGroup)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)),
-                  child: Text('我所屬的隊伍 (工號: $_myStaffId)', style: TextStyle(color: Colors.orange.shade900, fontSize: 12, fontWeight: FontWeight.bold)),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              color: Colors.grey.shade50,
+              elevation: 1,
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: teamColors[_myGroup] ?? Colors.orange,
+                  child: Text(_myGroup, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // 🗓️ 模擬四組團隊日曆 Grid
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7, // 一星期七日
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 0.9,
-            ),
-            itemCount: 31, // 模擬單月31天
-            itemBuilder: (context, index) {
-              int day = index + 1;
-              // 簡單模擬排班：M (早), A (中), N (夜)
-              String simulatedShift = (day % 3 == 0) ? 'M' : (day % 3 == 1 ? 'A' : 'N');
-
-              return Container(
-                decoration: BoxDecoration(
-                  color: Colors.indigo.shade50,
-                  border: Border.all(color: Colors.indigo.shade100),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text('$day', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: simulatedShift == 'M' ? Colors.red : (simulatedShift == 'A' ? Colors.green : Colors.blue),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(simulatedShift, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
+                title: Text('員工編號: $_staffId', style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('主要所屬組別: $_myGroup 隊 ${_isSuperAdmin ? " (超級管理員)" : ""}'),
+                trailing: const Icon(Icons.verified_user, color: Colors.green),
               ),
-            );
-          ),
-          const SizedBox(height: 20),
+            ),
+            const SizedBox(height: 20),
 
-          // 👥 下方人員對碰清單（100% 真實顯示，供管理或對數使用）
-          const Text('👥 隊員值班狀態核對', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          const Divider(),
-          ListTile(
-            leading: CircleAvatar(backgroundColor: Colors.indigo, child: Text(teamLetter)),
-            title: Text(teamLetter == _myGroup ? '$_myRealName (您)' : '$teamLetter 隊值班同仁甲'),
-            subtitle: Text('主要崗位：技術操作員 | 員工編號：${teamLetter == _myGroup ? _myStaffId : "${teamLetter}8823"}'),
-            trailing: const Text('正常執勤', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-          ),
-        ],
+            const Text(
+              '📅 檢視各隊請假排班行事曆',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.4,
+              children: ['A', 'B', 'C', 'D'].map((team) {
+                final bool isMyTeam = (team == _myGroup);
+                return InkWell(
+                  onTap: () => _navigateToTeamCalendar(team),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isMyTeam ? teamColors[team]!.withOpacity(0.08) : Colors.white,
+                      border: Border.all(
+                        color: isMyTeam ? teamColors[team]! : Colors.grey.shade300,
+                        width: isMyTeam ? 2.0 : 1.0,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '$team 隊行事曆',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: teamColors[team],
+                              ),
+                            ),
+                            if (isMyTeam)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: teamColors[team],
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('我屬隊伍', style: TextStyle(color: Colors.white, fontSize: 10)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '點擊查看 $team 隊成員請假詳情、審批進度及即時更新。',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600, height: 1.3),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+
+            const Text(
+              '⚙️ 系統設定與工具',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              elevation: 2,
+              child: ListTile(
+                leading: const Icon(Icons.tune, color: Colors.orange),
+                title: const Text('桌面小工具與全彈性鬧鐘'),
+                subtitle: const Text('設定 5 班次獨立開關、0-240 分鐘出行提前響鬧'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const DesktopWidgetsPage()),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
