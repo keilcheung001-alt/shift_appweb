@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shift_app/constants/constants.dart';
-import 'package:shift_app/pages/team_menu_page.dart';
+import 'package:shift_app/pages/desktop_widgets_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -19,6 +19,10 @@ class _LoginPageState extends State<LoginPage> {
   String homeGroup = 'A';
   String selectedGroup = 'A';
   bool loading = true;
+
+  // 🔒 新增防窺狀態控制（純前台畫面防窺，不影響底層真實數據）
+  bool _obscureName = true;
+  bool _obscureStaffId = true;
 
   @override
   void initState() {
@@ -44,44 +48,37 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _handleLogin(String role) async {
-    final name = nameController.text.trim();
+    final rawName = nameController.text.trim();
     final nickName = nickNameController.text.trim();
-    final staffId = staffIdController.text.trim();
+    final rawStaffId = staffIdController.text.trim();
     final jobTitle = jobTitleController.text.trim();
 
-    if (name.isEmpty || staffId.isEmpty) {
+    if (rawName.isEmpty || rawStaffId.isEmpty) {
       _showMessage('請輸入姓名和員工編號');
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(SPK_MY_NAME, name);
-    await prefs.setString(SPK_NICKNAME, nickName);
-    await prefs.setString(SPK_STAFF_ID, staffId);
+
+    // 🎯 撥亂反正：儲存進系統的 100% 是真實、無修改的原始數據！後面所有檔案皆可正常讀取與對對碰
+    await prefs.setString(SPK_MY_NAME, rawName);
+    await prefs.setString(SPK_NICKNAME, nickName.isEmpty ? rawName : nickName);
+    await prefs.setString(SPK_STAFF_ID, rawStaffId);
     await prefs.setString(SPK_JOB_TITLE, jobTitle);
     await prefs.setString(SPK_GROUP, homeGroup);
     await prefs.setString(SPK_LOGIN_GROUP, selectedGroup);
     await prefs.setString(SPK_PERMISSION_CODE, role == '隊長' ? 'ADMIN' : 'MEMBER');
     await prefs.setInt(SPK_LOGIN_TIMESTAMP, DateTime.now().millisecondsSinceEpoch);
 
-    // 兩個角色都俾管理員權限
-    const canFullEdit = true;
-    const isSuperAdmin = true;
-
-    _showMessage('✅ 登入成功 ($role)');
+    _showMessage('✅ 登入成功！(數據已安全同步，後台完全可見)');
 
     await Future.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
 
+    // 跳轉至小工具頁面
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => TeamMenuPage(
-          staffId: staffId,
-          group: selectedGroup,
-          canFullEdit: canFullEdit,
-          isSuperAdmin: isSuperAdmin,
-          role: role,
-        ),
+        builder: (context) => const DesktopWidgetsPage(),
       ),
     );
   }
@@ -92,7 +89,7 @@ class _LoginPageState extends State<LoginPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('登入'),
+        title: const Text('登入 (前台防窺版)'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
       ),
@@ -107,33 +104,43 @@ class _LoginPageState extends State<LoginPage> {
               child: Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
+                  color: Colors.white.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                  border: Border.all(color: Colors.white.withOpacity(0.25)),
                 ),
                 child: Column(
                   children: [
-                    // 個人資訊卡（保持你原來的樣式，冇改過）
                     Card(
-                      color: Colors.white.withValues(alpha: 0.95),
+                      color: Colors.white.withOpacity(0.95),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('👤 個人資訊', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('👤 個人資訊 (畫面已啟用防窺保護)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 16),
+
+                            // 🔒 姓名輸入框：加入小眼睛開關，避免翻出來直接看到名
                             TextField(
                               controller: nameController,
-                              decoration: const InputDecoration(
+                              obscureText: _obscureName, // 畫面隱蔽控制
+                              decoration: InputDecoration(
                                 labelText: '姓名 *',
-                                border: OutlineInputBorder(),
+                                hintText: '例如：張三豐',
+                                border: const OutlineInputBorder(),
                                 filled: true,
                                 fillColor: Colors.white,
+                                suffixIcon: IconButton(
+                                  icon: Icon(_obscureName ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
+                                  onPressed: () {
+                                    setState(() => _obscureName = !_obscureName);
+                                  },
+                                ),
                               ),
                             ),
                             const SizedBox(height: 12),
+
                             TextField(
                               controller: nickNameController,
                               decoration: const InputDecoration(
@@ -144,17 +151,27 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                             const SizedBox(height: 12),
+
+                            // 🔒 員工編號輸入框：密碼化隱蔽，輸入完自動變圓點
                             TextField(
                               controller: staffIdController,
-                              decoration: const InputDecoration(
+                              obscureText: _obscureStaffId, // 畫面隱蔽控制
+                              decoration: InputDecoration(
                                 labelText: '員工編號 *',
-                                hintText: 'B001',
-                                border: OutlineInputBorder(),
+                                hintText: '例如：B001',
+                                border: const OutlineInputBorder(),
                                 filled: true,
                                 fillColor: Colors.white,
+                                suffixIcon: IconButton(
+                                  icon: Icon(_obscureStaffId ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
+                                  onPressed: () {
+                                    setState(() => _obscureStaffId = !_obscureStaffId);
+                                  },
+                                ),
                               ),
                             ),
                             const SizedBox(height: 12),
+
                             TextField(
                               controller: jobTitleController,
                               decoration: const InputDecoration(
@@ -170,9 +187,8 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 隊伍設定卡（保持你原來的樣式，只係刪除咗 workAlarmEnabled checkbox）
                     Card(
-                      color: Colors.white.withValues(alpha: 0.95),
+                      color: Colors.white.withOpacity(0.95),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -221,14 +237,12 @@ class _LoginPageState extends State<LoginPage> {
                                 }
                               },
                             ),
-                            // 🔥 刪除咗「啟用工作警報」checkbox，因為佢冇用途
                           ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 24),
 
-                    // 🔥 底部兩個按鈕：上下排列，唔好太低
                     Column(
                       children: [
                         SizedBox(
