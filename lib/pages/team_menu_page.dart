@@ -11,12 +11,14 @@ import 'whatsapp_config_page.dart';
 
 class TeamMenuPage extends StatefulWidget {
   final String? role;
-  final String? staffId; // 🟢 補回 staffId 接收
+  final String? staffId;
+  final String? group; // 🟢 補回接收 group 參數，對齊 main.dart 同 login_page.dart
 
   const TeamMenuPage({
     super.key,
     this.role,
-    this.staffId, // 🟢 補回參數
+    this.staffId,
+    this.group, // 🟢 補回參數
   });
 
   @override
@@ -37,7 +39,8 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   Future<void> _loadUserTeam() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _currentTeam = prefs.getString(SPK_GROUP) ?? 'A';
+      // 如果有傳入 group 參數就優先用，冇就讀 local 緩存
+      _currentTeam = widget.group ?? prefs.getString(SPK_GROUP) ?? 'A';
       _isLoading = false;
     });
   }
@@ -164,7 +167,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
-                      // 🟢 修正：移除了 const 關鍵字，完美對應動態頁面跳轉
+                      // 🟢 修正：徹底移除 MaterialPageRoute 前面漏網之魚嘅 const 關鍵字
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => const WhatsappConfigPage()),
