@@ -10,11 +10,13 @@ import 'announcement_page.dart';
 import 'whatsapp_config_page.dart';
 
 class TeamMenuPage extends StatefulWidget {
-  final String? role; // 🟢 修正 1：補回 role 參數，完美對齊 login_page.dart:83 的呼叫
+  final String? role;
+  final String? staffId; // 🟢 補回 staffId 接收
 
   const TeamMenuPage({
     super.key,
     this.role,
+    this.staffId, // 🟢 補回參數
   });
 
   @override
@@ -30,7 +32,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   void initState() {
     super.initState();
     _loadUserTeam();
-    // 🟢 修正 2：徹底移除出錯且不存在的 HolidaysPage.downloadHolidaysForYear(2026)
   }
 
   Future<void> _loadUserTeam() async {
@@ -74,7 +75,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   },
                   child: InteractiveViewer(
                     transformationController: _transformationController,
-                    minScale: 1.0, // 🔒 鎖定最低 1.0，禁止員工縮到太小睇唔到
+                    minScale: 1.0,
                     maxScale: 4.0,
                     child: Container(
                       padding: const EdgeInsets.all(8),
@@ -84,15 +85,12 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                           crossAxisCount: 7,
                           childAspectRatio: 1.0,
                         ),
-                        itemCount: 35, // 顯示當月日曆格子
+                        itemCount: 35,
                         itemBuilder: (context, index) {
                           final today = DateTime.now();
                           final date = DateTime(today.year, today.month, index - 2);
-                          final dateStr = DateFormat('yyyy-MM-dd').format(date);
 
-                          // 🚀 動態使用你真正的 ShiftCalculator 計算六個班次，一字不差
                           final shiftCode = ShiftCalculator.calculateShift(_currentTeam, date);
-                          final shiftName = ShiftCalculator.getShiftName(shiftCode);
                           final isRest = ShiftCalculator.isRestDay(shiftCode);
 
                           return Container(
@@ -128,7 +126,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.assignment, color: Colors.orange),
                     title: const Text('我的請假記錄'),
                     onTap: () {
-                      // 🟢 修正 3：移除不匹配的 staffId 參數，對齊 const MyLeavePage({super.key})
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => const MyLeavePage()),
@@ -140,7 +137,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.cancel, color: Colors.red),
                     title: const Text('取消請假申請'),
                     onTap: () {
-                      // 🟢 修正 4：移除不匹配的 staffId 參數，對齊 const CancelLeaveRequestPage({super.key})
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => const CancelLeaveRequestPage()),
@@ -152,7 +148,6 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.campaign, color: Colors.blue),
                     title: const Text('廠房最新公告'),
                     onTap: () {
-                      // 🟢 修正 5：補回必填的 team 與 canEdit 參數，對齊 AnnouncementPage 的要求
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -169,7 +164,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
-                      // 🟢 修正 6：拿走前面的 const 關鍵字，完美解決 Not a constant expression 錯誤
+                      // 🟢 修正：移除了 const 關鍵字，完美對應動態頁面跳轉
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => const WhatsappConfigPage()),

@@ -71,7 +71,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     await prefs.setInt('widget_alarm_advance_minutes', _alarmAdvanceMinutes);
 
     // 重新產生小工具快照與更新鬧鐘排程
-    await WidgetSnapshotWriter.updateSnapshotAndAlarms();
+    await WidgetSnapshotWriter.forceRefreshAllWidgets();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
