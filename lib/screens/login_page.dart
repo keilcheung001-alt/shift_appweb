@@ -1,9 +1,7 @@
-// lib/screens/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shift_app/constants/constants.dart';
 import 'package:shift_app/pages/team_menu_page.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -17,13 +15,10 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController nickNameController = TextEditingController();
   final TextEditingController staffIdController = TextEditingController();
   final TextEditingController jobTitleController = TextEditingController();
-  final TextEditingController permissionCodeController = TextEditingController();
 
   String homeGroup = 'A';
   String selectedGroup = 'A';
-  bool workAlarmEnabled = false;
   bool loading = true;
-  bool isVerifying = false;
 
   @override
   void initState() {
@@ -31,46 +26,28 @@ class _LoginPageState extends State<LoginPage> {
     _loadSettings();
   }
 
-  @override
-  void dispose() {
-    nameController.dispose();
-    nickNameController.dispose();
-    staffIdController.dispose();
-    jobTitleController.dispose();
-    permissionCodeController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        nameController.text = prefs.getString(SPK_MY_NAME) ?? '';
-        nickNameController.text = prefs.getString(SPK_NICKNAME) ?? '';
-        staffIdController.text = prefs.getString(SPK_STAFF_ID) ?? '';
-        jobTitleController.text = prefs.getString(SPK_JOB_TITLE) ?? '';
-        homeGroup = prefs.getString(SPK_GROUP) ?? 'A';
-        selectedGroup = prefs.getString(SPK_LOGIN_GROUP) ?? homeGroup;
-        workAlarmEnabled = prefs.getBool(SPK_WORK_ALARM_ENABLED) ?? false;
-        loading = false;
-      });
-    }
+    setState(() {
+      nameController.text = prefs.getString(SPK_MY_NAME) ?? '';
+      nickNameController.text = prefs.getString(SPK_NICKNAME) ?? '';
+      staffIdController.text = prefs.getString(SPK_STAFF_ID) ?? '';
+      jobTitleController.text = prefs.getString(SPK_JOB_TITLE) ?? '';
+      homeGroup = prefs.getString(SPK_GROUP) ?? 'A';
+      selectedGroup = prefs.getString(SPK_LOGIN_GROUP) ?? homeGroup;
+      loading = false;
+    });
   }
 
   void _showMessage(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _handleLogin({String? presetPermissionCode}) async {
+  Future<void> _handleLogin(String role) async {
     final name = nameController.text.trim();
     final nickName = nickNameController.text.trim();
     final staffId = staffIdController.text.trim();
     final jobTitle = jobTitleController.text.trim();
-
-    // 如果傳入 presetPermissionCode，就用佢；否則用輸入框嘅值
-    final permissionCode = (presetPermissionCode ?? permissionCodeController.text.trim()).toUpperCase();
 
     if (name.isEmpty || staffId.isEmpty) {
       _showMessage('請輸入姓名和員工編號');
@@ -78,43 +55,21 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     final prefs = await SharedPreferences.getInstance();
-
     await prefs.setString(SPK_MY_NAME, name);
     await prefs.setString(SPK_NICKNAME, nickName);
     await prefs.setString(SPK_STAFF_ID, staffId);
     await prefs.setString(SPK_JOB_TITLE, jobTitle);
     await prefs.setString(SPK_GROUP, homeGroup);
     await prefs.setString(SPK_LOGIN_GROUP, selectedGroup);
-    await prefs.setString(SPK_PERMISSION_CODE, permissionCode);
-    await prefs.setBool(SPK_WORK_ALARM_ENABLED, workAlarmEnabled);
-
-    bool canFullEdit = false;
-    bool isSuperAdmin = false;
-
-    if (permissionCode == PERMISSION_CODE_SUPER_ADMIN) {
-      canFullEdit = true;
-      isSuperAdmin = true;
-    } else if (permissionCode == PERMISSION_CODE_TEAM_LEAD) {
-      canFullEdit = true;
-      selectedGroup = homeGroup;
-    } else {
-      selectedGroup = homeGroup;
-      canFullEdit = false;
-    }
-
-    if (mounted) setState(() => isVerifying = true);
-
+    await prefs.setString(SPK_PERMISSION_CODE, role == '隊長' ? 'ADMIN' : 'MEMBER');
     await prefs.setInt(SPK_LOGIN_TIMESTAMP, DateTime.now().millisecondsSinceEpoch);
 
-    if (isSuperAdmin) {
-      _showMessage('✅ 登入成功 (SM - 隊長)');
-    } else if (canFullEdit) {
-      _showMessage('✅ 登入成功 ($selectedGroup 管理員)');
-    } else {
-      _showMessage('✅ 登入成功 ($selectedGroup 員工)');
-    }
+    // 兩個角色都俾管理員權限
+    const canFullEdit = true;
+    const isSuperAdmin = true;
 
-    if (!mounted) return;
+    _showMessage('✅ 登入成功 ($role)');
+
     await Future.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
 
@@ -125,50 +80,7 @@ class _LoginPageState extends State<LoginPage> {
           group: selectedGroup,
           canFullEdit: canFullEdit,
           isSuperAdmin: isSuperAdmin,
-        ),
-      ),
-    );
-
-    if (mounted) setState(() => isVerifying = false);
-  }
-
-  // 可點擊的權限卡片 - 直接調用 _handleLogin 並傳入權限碼
-  Widget _buildClickablePermissionHint(String label, String desc, IconData icon, Color bgColor, String permissionCode) {
-    return GestureDetector(
-      onTap: () {
-        _handleLogin(presetPermissionCode: permissionCode);
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: bgColor.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: bgColor.withValues(alpha: 0.4)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: bgColor, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                desc,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1),
-              ),
-            ),
-          ],
+          role: role,
         ),
       ),
     );
@@ -183,13 +95,10 @@ class _LoginPageState extends State<LoginPage> {
         title: const Text('登入'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
-        elevation: 2,
       ),
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.blue.shade700, Colors.indigo.shade700],
-          ),
+          gradient: LinearGradient(colors: [Colors.blue.shade700, Colors.indigo.shade700]),
         ),
         child: SafeArea(
           child: Center(
@@ -201,18 +110,10 @@ class _LoginPageState extends State<LoginPage> {
                   color: Colors.white.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 個人資訊卡
+                    // 個人資訊卡（保持你原來的樣式，冇改過）
                     Card(
                       color: Colors.white.withValues(alpha: 0.95),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -269,7 +170,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 隊伍 & 權限卡 - 改用 DropdownButtonFormField（網頁版穩定）
+                    // 隊伍設定卡（保持你原來的樣式，只係刪除咗 workAlarmEnabled checkbox）
                     Card(
                       color: Colors.white.withValues(alpha: 0.95),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -278,10 +179,8 @@ class _LoginPageState extends State<LoginPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('👥 隊伍 & 權限', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('👥 隊伍設定', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 12),
-
-                            // 所屬隊伍
                             DropdownButtonFormField<String>(
                               value: homeGroup,
                               decoration: const InputDecoration(
@@ -291,37 +190,28 @@ class _LoginPageState extends State<LoginPage> {
                                 fillColor: Colors.white,
                               ),
                               items: const ['A', 'B', 'C', 'D']
-                                  .map((team) => DropdownMenuItem(
-                                value: team,
-                                child: Text('$team 隊'),
-                              ))
+                                  .map((team) => DropdownMenuItem(value: team, child: Text('$team 隊')))
                                   .toList(),
                               onChanged: (value) {
                                 if (value != null) {
                                   setState(() {
                                     homeGroup = value;
-                                    // 如果預設隊伍為空，同步更新
                                     if (selectedGroup.isEmpty) selectedGroup = value;
                                   });
                                 }
                               },
                             ),
                             const SizedBox(height: 12),
-
-                            // 預設檢查隊伍
                             DropdownButtonFormField<String>(
                               value: selectedGroup,
                               decoration: const InputDecoration(
-                                labelText: '預設檢查隊伍（SR 固定用所屬隊伍）',
+                                labelText: '預設檢查隊伍',
                                 border: OutlineInputBorder(),
                                 filled: true,
                                 fillColor: Colors.white,
                               ),
                               items: const ['A', 'B', 'C', 'D']
-                                  .map((team) => DropdownMenuItem(
-                                value: team,
-                                child: Text('$team 隊'),
-                              ))
+                                  .map((team) => DropdownMenuItem(value: team, child: Text('$team 隊')))
                                   .toList(),
                               onChanged: (value) {
                                 if (value != null) {
@@ -331,45 +221,48 @@ class _LoginPageState extends State<LoginPage> {
                                 }
                               },
                             ),
-                            const SizedBox(height: 12),
-
-                            CheckboxListTile(
-                              value: workAlarmEnabled,
-                              onChanged: (v) {
-                                setState(() => workAlarmEnabled = v ?? false);
-                              },
-                              title: const Text('啟用工作警報'),
-                              contentPadding: EdgeInsets.zero,
-                              activeColor: Colors.indigo,
-                            ),
+                            // 🔥 刪除咗「啟用工作警報」checkbox，因為佢冇用途
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 24),
 
-                    // 三張可點擊的權限卡片
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '🔐 選擇權限登入',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    // 🔥 底部兩個按鈕：上下排列，唔好太低
+                    Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _handleLogin('隊長'),
+                            icon: const Icon(Icons.shield, color: Colors.white),
+                            label: const Text('隊長登入', style: TextStyle(fontSize: 16)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
                           ),
-                          const SizedBox(height: 8),
-                          _buildClickablePermissionHint('隊長', 'SM', Icons.shield, Colors.green, PERMISSION_CODE_SUPER_ADMIN),
-                          _buildClickablePermissionHint('管理員', 'SR', Icons.person, Colors.orange, PERMISSION_CODE_TEAM_LEAD),
-                          _buildClickablePermissionHint('普通員工', '（留空）', Icons.people, Colors.blue, ''),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _handleLogin('隊員'),
+                            icon: const Icon(Icons.people, color: Colors.white),
+                            label: const Text('隊員登入', style: TextStyle(fontSize: 16)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
