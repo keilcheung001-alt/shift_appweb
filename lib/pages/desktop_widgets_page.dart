@@ -181,19 +181,19 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
           ),
           const SizedBox(height: 24),
 
-          // Section 3: 網上數據快照 (StreamBuilder)
+          // Section 3: 網上數據快照 (直接對接你真實的 a_team_leave 數據)
           const Text(
-            '網上數據快照',
+            '當班團隊成員網上快照',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
           ),
           const SizedBox(height: 8),
 
           StreamBuilder<QuerySnapshot>(
-            // 監聽雲端集合（請確保名稱與你資料庫一致）
-            stream: FirebaseFirestore.instance.collection('your_collection').snapshots(),
+            // 🔒 這裡直接幫你換成你真實存在的 Team A 數據集合，防止新手機和網頁找不到路徑
+            stream: FirebaseFirestore.instance.collection('a_team_leave').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Text('數據載入錯誤: ${snapshot.error}');
+                return Text('連線發生錯誤: ${snapshot.error}');
               }
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()));
@@ -203,7 +203,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               if (docs.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.all(16.0),
-                  child: Text('目前網上沒有任何數據。'),
+                  child: Text('目前數據庫 a_team_leave 內沒有任何成員文件。'),
                 );
               }
 
@@ -215,16 +215,21 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   final rawData = docs[index].data() as Map<String, dynamic>?;
                   if (rawData == null) return const SizedBox();
 
-                  // 安全讀取欄位（請自行對應你雲端的欄位 Key）
-                  final String name = rawData['name']?.toString() ?? '未知名稱';
-                  final String shiftTime = rawData['shift_time']?.toString() ?? '未有時間';
+                  // 🔒 安全提取：如果資料庫裡用的是其他 Key，會顯示預設字，絕對不會引發 Null 灰畫面
+                  final String name = rawData['name']?.toString() ??
+                                      rawData['user_name']?.toString() ??
+                                      '未命名成員';
+
+                  final String shiftTime = rawData['shift_time']?.toString() ??
+                                           rawData['time']?.toString() ??
+                                           '正常當班';
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFFF0F0F0))),
                     child: ListTile(
                       title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('上班時間: $shiftTime'),
+                      subtitle: Text('狀態/班次: $shiftTime'),
                       trailing: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF4A55A2),
@@ -232,7 +237,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                           elevation: 0,
                         ),
                         onPressed: () {
-                          // 點擊觸發測試，帶入當前行的數據與開關狀態
                           _testTriggerAlarm('製程異常', _isProcessAlarmEnabled, name, shiftTime);
                         },
                         child: const Text('測試'),

@@ -9,6 +9,7 @@ import 'my_leave_page.dart';
 import 'announcement_page.dart';
 import 'desktop_widgets_page.dart';
 import '../screens/login_page.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // 👈 引入網頁版判斷工具
 
 class TeamMenuPage extends StatefulWidget {
   final String? role;
@@ -59,14 +60,27 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     super.dispose();
   }
 
+  // 🔒 核心安全鎖 1：強制捕捉初始化時的所有潛在錯誤，確保網頁不卡死
   Future<void> _initData() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) {
-      setState(() {
-        _currentTeam = widget.group ?? 'A';
-        _isLoading = false;
-        _updateShiftInfo();
-      });
+    try {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() {
+          // 如果傳進來的 group 是 null，強制預設為 'A'，避免後面計算爆錯
+          _currentTeam = (widget.group == null || widget.group!.isEmpty) ? 'A' : widget.group!;
+          _isLoading = false;
+          _updateShiftInfo();
+        });
+      }
+    } catch (e) {
+      // 就算萬一有任何設備或初始化錯誤，也強制關閉加載狀態，讓網頁渲染畫面
+      if (mounted) {
+        setState(() {
+          _currentTeam = 'A';
+          _isLoading = false;
+          _todayShift = '常班';
+        });
+      }
     }
   }
 
@@ -80,20 +94,21 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     });
   }
 
+  // 🔒 核心安全鎖 2：雙重保護班次計算邏輯
   void _updateShiftInfo() {
     final now = DateTime.now();
-    final group = widget.group ?? 'A';
+    final group = (widget.group == null || widget.group!.isEmpty) ? 'A' : widget.group!;
     try {
       _todayShift = ShiftCalculator.calculateShift(group, now);
     } catch (e) {
-      _todayShift = '常班';
+      _todayShift = '常班'; // 計算失敗時給予安全預設值，絕不崩潰
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final userRole = widget.role ?? '員工';
-    final userGroup = widget.group ?? 'A';
+    final userGroup = (widget.group == null || widget.group!.isEmpty) ? 'A' : widget.group!;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFFBF7),
@@ -165,7 +180,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ),
                 ),
 
-                // 2. 📢 黃色公告欄
+                // 2. 📢 黃色公告欄（🔒 安全防爆鎖）
                 Container(
                   width: double.infinity,
                   margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -188,10 +203,14 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                               .snapshots(),
                           builder: (context, snapshot) {
                             String announcementText = '一則 testing';
-                            if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                              final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
-                              announcementText = data['content'] ?? '一則 testing';
+
+                            if (snapshot.hasData && snapshot.data != null && snapshot.data!.docs.isNotEmpty) {
+                              final rawDoc = snapshot.data!.docs.first.data() as Map<String, dynamic>?;
+                              if (rawDoc != null) {
+                                announcementText = rawDoc['content']?.toString() ?? '一則 testing';
+                              }
                             }
+
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -264,7 +283,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
                 const SizedBox(height: 16),
 
-                // 4. 🎛️ 底部功能列表（全體直接平鋪顯示）
+                // 4. 🎛️ 底部功能列表
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.only(bottom: 24),
