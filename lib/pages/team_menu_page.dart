@@ -8,12 +8,11 @@ import 'my_leave_page.dart';
 import 'cancel_leave_request_page.dart';
 import '../screens/login_page.dart';
 
-// 🎨 【四條 Team 專屬顏色設定區】—— 100% 跟隨你的原底顏色設定
-// 如果顏色想微調，直接修改後面的 Colors 即可
-const Color COLOR_TEAM_A = Colors.red;         // 🔴 A 隊專屬色
-const Color COLOR_TEAM_B = Colors.green;       // 🟢 B 隊專屬色
-const Color COLOR_TEAM_C = Colors.blue;        // 🔵 C 隊專屬色
-const Color COLOR_TEAM_D = Colors.purple;      // 🟣 D 隊專屬色
+// 🎨 【四條 Team 專屬原底顏色】
+const Color COLOR_TEAM_A = Colors.red;         // 🔴 A 隊專屬紅
+const Color COLOR_TEAM_B = Colors.green;       // 🟢 B 隊專屬綠
+const Color COLOR_TEAM_C = Colors.blue;        // 🔵 C 隊專屬藍
+const Color COLOR_TEAM_D = Colors.purple;      // 🟣 D 隊專屬紫
 
 class TeamMenuPage extends StatefulWidget {
   final String? role;
@@ -53,11 +52,11 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     });
   }
 
-  // 🟢 安全登出：只刪除登入狀態，保留所有人名、代號和 Staff ID，下次免重複輸入
+  // 🟢 安全登出：精準移除，鎖死並保留所有人名、代號和 Staff ID
   Future<void> _handleLogout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('isLoggedIn');
-    await prefs.remove(SPK_ROLE);
+    await prefs.remove('role'); // 修正：直接使用字串，避免常數未定義錯誤
     if (mounted) {
       Navigator.pushReplacement(
         context,
@@ -66,14 +65,12 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     }
   }
 
-  // 🎨 獲取每條 Team 專屬按鈕顏色的邏輯
   Color _getTeamColor(String teamCode) {
     switch (teamCode) {
       case 'A': return COLOR_TEAM_A;
       case 'B': return COLOR_TEAM_B;
       case 'C': return COLOR_TEAM_C;
-      case 'D': return COLOR_TEAM_D;
-      default: return Colors.orange;
+      default: return COLOR_TEAM_D;
     }
   }
 
@@ -83,8 +80,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
       case 'A': routeName = ROUTE_CALENDAR_A; break;
       case 'B': routeName = ROUTE_CALENDAR_B; break;
       case 'C': routeName = ROUTE_CALENDAR_C; break;
-      case 'D': routeName = ROUTE_CALENDAR_D; break;
-      default: routeName = ROUTE_CALENDAR_A;
+      default: routeName = ROUTE_CALENDAR_D;
     }
 
     Navigator.pushNamed(
@@ -125,7 +121,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 📅 1. 四大隊伍大表入口（完美跟隨各自隊伍專屬色，撳入去即看請假大表格與個人鬧鐘）
+            // 📅 1. 四大隊伍大表入口（跟隨各自專屬色 A紅、B綠、C藍、D紫）
             const Text(
               '進入各隊排班大表 (可設定個人鬧鐘與查看請假)：',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -134,13 +130,12 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: ['A', 'B', 'C', 'D'].map((team) {
-                final teamColor = _getTeamColor(team);
                 return SizedBox(
                   width: 75,
                   height: 50,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: teamColor, // 🟢 100% 帶入該隊伍專屬代表色
+                      backgroundColor: _getTeamColor(team),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       elevation: 3,
@@ -153,7 +148,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
             ),
             const SizedBox(height: 24),
 
-            // ⚙️ 2. 中部：管理員功能表（正宗 8 樣功能全齊）
+            // ⚙️ 2. 中部：管理員功能表（8 樣嘢全齊，全部改用安全路由與字串）
             const Text('⚙️ 系統管理功能選單 (八大核心功能)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Card(
@@ -205,7 +200,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ListTile(
                     leading: const Icon(Icons.camera_alt, color: Colors.brown),
                     title: const Text('8. 廠房更表網頁快照匯出'),
-                    onTap: () => Navigator.pushNamed(context, ROUTE_SNAPSHOT_WRITER),
+                    onTap: () => Navigator.pushNamed(context, '/snapshot_writer'), // 🟢 修正：直接指向實際註冊路由字串
                   ),
                 ],
               ),
