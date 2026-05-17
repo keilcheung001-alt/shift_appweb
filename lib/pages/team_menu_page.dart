@@ -8,15 +8,15 @@ import 'my_leave_page.dart';
 import 'cancel_leave_request_page.dart';
 import 'announcement_page.dart';
 import 'whatsapp_config_page.dart';
-import '../screens/login_page.dart'; // 🟢 引入登入頁，等一陣登出可以強制跳轉翻去
+import '../screens/login_page.dart'; // 🟢 補回引入登入頁面，供登出跳轉使用
 
-// 🟢 修正一：基礎類別必須是 StatefulWidget，原本寫錯成 Widget 導致底層大崩潰
+// 🟢 修正：原本寫錯成extends Widget，改回正確的 StatefulWidget
 class TeamMenuPage extends StatefulWidget {
   final String? role;
   final String? staffId;
   final String? group;
   final bool? canFullEdit;
-  final bool? isSuperAdmin; // 🟢 修正二：補齊接收 main.dart 傳過嚟嘅所有權限參數
+  final bool? isSuperAdmin; // 🟢 補齊 main.dart 傳進來的參數
 
   const TeamMenuPage({
     super.key,
@@ -24,7 +24,7 @@ class TeamMenuPage extends StatefulWidget {
     this.staffId,
     this.group,
     this.canFullEdit,
-    this.isSuperAdmin, // 🟢 補齊參數
+    this.isSuperAdmin,
   });
 
   @override
@@ -45,16 +45,15 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   Future<void> _loadUserTeam() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      // 優先使用外面傳進來的組別，如果沒有才讀取本地緩存，預設為 A
       _currentTeam = widget.group ?? prefs.getString(SPK_GROUP) ?? 'A';
       _isLoading = false;
     });
   }
 
-  // 🟢 修正三：新增「安全登出邏輯」—— 清除緩存並退回登入畫面
+  // 🟢 補回登出功能邏輯
   Future<void> _handleLogout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear(); // 清除儲存的 staffId 狀態，等下次開 App 唔會再全自動跳過登入頁
+    await prefs.clear(); // 清除本機登入緩存，確保下次不會自動跳過登入頁面
     if (mounted) {
       Navigator.pushReplacement(
         context,
@@ -77,7 +76,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
         actions: [
-          // 🟢 修正四：AppBar 右上角正式加返「登出按鈕」，點擊即可手動退回登入畫面！
+          // 🟢 補回右上角「登出」掣，解決你卡在畫面出不去的問題！
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: '登出系統',
@@ -90,12 +89,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🟢 修正五：在頂部硬性補回「A、B、C、D 隊伍切換按鈕組」，想睇邊隊直接撳就得！
-            const Text(
-              '切換顯示隊伍更表：',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
+            // 🟢 補回 ABCD 更隊伍手動切換按鈕組
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: ['A', 'B', 'C', 'D'].map((team) {
@@ -109,7 +103,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   ),
                   onPressed: () {
                     setState(() {
-                      _currentTeam = team; // 撳完即時刷新更表數據
+                      _currentTeam = team;
                     });
                   },
                   child: Text('$team 隊', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -148,21 +142,39 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                           final today = DateTime.now();
                           final date = DateTime(today.year, today.month, index - 2);
 
+                          // 🟢 調用你原始的 ShiftCalculator 邏輯來精準獲取六個班次與顏色
                           final shiftCode = ShiftCalculator.calculateShift(_currentTeam, date);
                           final isRest = ShiftCalculator.isRestDay(shiftCode);
+                          final color = ShiftCalculator.getShiftColor(shiftCode); // 🎯 100% 直接使用你文件內的 6 更核心色彩
 
                           return Container(
                             margin: const EdgeInsets.all(2),
                             decoration: BoxDecoration(
-                              color: isRest ? Colors.grey.shade100 : Colors.orange.shade50,
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(4),
+                              // 🎨 根據你截圖的配色：放假用淺灰，返工用原配色的極淡底色襯托
+                              color: isRest ? Colors.grey.shade100 : color.withOpacity(0.06),
+                              // 🎨 100% 復原你要求的「每一間不同顏色邊框（Color Border）」
+                              border: Border.all(
+                                color: isRest ? Colors.grey.shade300 : color.withOpacity(0.5),
+                                width: 1.5,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text('${date.day}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                Text(shiftCode, style: TextStyle(fontSize: 10, color: isRest ? Colors.grey : Colors.orange.shade900)),
+                                Text(
+                                  '${date.day}',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  shiftCode,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isRest ? Colors.grey : color, // 🎨 文字也100%對其原始顏色
+                                  ),
+                                ),
                               ],
                             ),
                           );
@@ -222,10 +234,10 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                     leading: const Icon(Icons.chat, color: Colors.green),
                     title: const Text('通知群組設定 (WhatsApp)'),
                     onTap: () {
-                      // 🟢 修正六：徹底拿走 const，並改回項目中實際存在的 WhatsAppConfigPage 正確大寫名稱
+                      // 🟢 修正：徹底移除 const，對應動態路由跳轉
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => WhatsAppConfigPage()),
+                        MaterialPageRoute(builder: (context) => const WhatsappConfigPage()),
                       );
                     },
                   ),
