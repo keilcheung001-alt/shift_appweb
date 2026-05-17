@@ -28,7 +28,6 @@ class TeamMenuPage extends StatefulWidget {
 }
 
 class _TeamMenuPageState extends State<TeamMenuPage> {
-  // 1. 這裡直接初始化，移除了 _isLoading 狀態，不再使用非同步延遲，一開頁面立刻有數據
   String _currentTeam = 'A';
   String _todayShift = '常班';
 
@@ -45,14 +44,12 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   @override
   void initState() {
     super.initState();
-    // 2. 頁面一打開，立刻同步把組別指派給 _currentTeam，確保 UI 和 Firestore 第一次讀取就有正確的 Team 值
+    // 只做最基礎的初始化，徹底剷除所有異步延遲與定時器垃圾
     final safeGroup = (widget.group == null || widget.group!.isEmpty) ? 'A' : widget.group!;
     _currentTeam = safeGroup;
     _updateShiftInfo(safeGroup);
-    // 徹底剷走計時器（Timer），絕不在背景亂跑拋出異常
   }
 
-  // 3. 傳入指定的組別進行安全計算，避免全域變數未同步時爆錯
   void _updateShiftInfo(String groupName) {
     try {
       _todayShift = ShiftCalculator.calculateShift(groupName, DateTime.now());
@@ -84,7 +81,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
       ),
       body: Column(
         children: [
-          // 1. 用戶個人資料卡片 (保留原有版面與資訊)
+          // 1. 用戶個人資料卡片
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(16),
@@ -112,7 +109,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: Cross CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'cheungyiukei',
@@ -121,11 +118,11 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                       const SizedBox(height: 4),
                       Text(
                         '工號: ${widget.staffId ?? "583472"} (暱稱: 基)',
-                        style: TextStyle(color: Colors.white, fontSize: 13)
+                        style: const TextStyle(color: Colors.white, fontSize: 13)
                       ),
                       Text(
                         '權限: $userRole | 所屬組別: $userGroup 隊',
-                        style: TextStyle(color: Colors.white, fontSize: 12)
+                        style: const TextStyle(color: Colors.white, fontSize: 12)
                       ),
                     ],
                   ),
@@ -134,7 +131,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
             ),
           ),
 
-          // 2. 📢 黃色公告欄 (完美帶回你原本的 `_currentTeam` 即時篩選功能！)
+          // 2. 📢 黃色公告欄 (只保留你原本的 Firebase 撈取，移除我加的所有廢話文字)
           Container(
             width: double.infinity,
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -151,7 +148,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   child: StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('announcements')
-                        .where('targetTeam', isEqualTo: _currentTeam) // 👈 完美留低！撳邊隊就實時撈邊隊公告
+                        .where('targetTeam', isEqualTo: _currentTeam)
                         .orderBy('timestamp', descending: true)
                         .limit(1)
                         .snapshots(),
@@ -182,7 +179,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
           const SizedBox(height: 16),
 
-          // 3. 🔲 四色隊伍日曆快速切換按鈕 (保留動態切換 A、B、C、D 隊功能)
+          // 3. 🔲 四色隊伍日曆快速切換按鈕
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Align(
@@ -204,7 +201,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
                   child: GestureDetector(
                     onTap: () {
                       setState(() {
-                        _currentTeam = t; // 點擊時切換 _currentTeam，上方的公告欄會跟著動態更新
+                        _currentTeam = t;
                       });
                     },
                     child: Container(
@@ -233,7 +230,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
           const SizedBox(height: 16),
 
-          // 4. 🎛️ 底部完整功能列表 (全部你原有的跳轉頁面，原封不動交還給你)
+          // 4. 🎛️ 底部完整功能列表
           Expanded(
             child: ListView(
               padding: const EdgeInsets.only(bottom: 24),
