@@ -46,7 +46,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   // 請假快照相關
   List<Map<String, String>> _leaveMembers = [];
   bool _loadingLeave = true;
-  String? _errorMessage; // 捕捉錯誤訊息用
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -54,7 +54,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     _initData();
   }
 
-  /// 初始化整合：確保本地設定與雲端數據同步加載
   Future<void> _initData() async {
     await _loadWidgetSettings();
     await _loadInitialUserTeam();
@@ -82,17 +81,14 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   }
 
   Future<void> _loadInitialUserTeam() async {
-    // 如果 SharedPreferences 裡沒有存過隊伍，才用 AuthUtil 的預設隊伍
     final prefs = await SharedPreferences.getInstance();
     if (!prefs.containsKey('widget_team')) {
       final defaultTeam = await AuthUtil.getHomeGroup();
       setState(() => _selectedTeam = defaultTeam);
     }
-    // 根據當前選中的隊伍撈取 Firestore 資料
     _loadLeaveSnapshot(_selectedTeam);
   }
 
-  /// 🛠️ 核心修正：動態傳入 team，支援即時切換隊伍重刷
   Future<void> _loadLeaveSnapshot(String team) async {
     if (!mounted) return;
     setState(() {
@@ -101,7 +97,10 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     });
 
     try {
+      // 確保轉成小寫，並加上日誌方便 Web 端除錯
       final collectionName = '${team.toLowerCase()}_team_leave';
+      debugPrint('[Firestore] 正在嘗試撈取集合: $collectionName');
+
       final snapshot = await FirebaseFirestore.instance.collection(collectionName).get();
 
       final members = <Map<String, String>>[];
@@ -119,16 +118,17 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         });
       }
     } catch (e) {
+      debugPrint('[Firestore 錯誤]: $e');
       if (mounted) {
         setState(() {
           _loadingLeave = false;
-          _errorMessage = '載入失敗，請檢查網絡連線 ($e)';
+          _errorMessage = '載入失敗，請檢查網絡連線或 Firebase 設定 ($e)';
         });
       }
     }
   }
 
-  Future<void> _saveWidgetSettings() async {
+  Future<void> _saveWidgetSettings({bool silent = false}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('widget_enabled', _widgetEnabled);
     await prefs.setString('widget_team', _selectedTeam);
@@ -148,10 +148,10 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     try {
       await alarmChannel.invokeMethod('syncAlarms');
     } catch (e) {
-      debugPrint('底層同步跳過');
+      debugPrint('底層同步跳過（Web環境不支援MethodChannel屬正常現象）');
     }
 
-    if (mounted) {
+    if (mounted && !silent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ 設定已儲存')),
       );
@@ -173,7 +173,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     }
   }
 
-  /// 👑 優化組件：引入具名參數、SliderTheme、四捨五入滑塊
   Widget _buildFlexibleAlarmSlider({
     required String title,
     required String startTime,
@@ -199,7 +198,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ],
           ),
           if (!isEnabled) ...[
-            const Padding(padding: EdgeInsets.only(top: 4, bottom: 8), child: Text('❌ 呢個班次嘅鬧鐘閂咗', style: TextStyle(color: Colors.red, fontSize: 12))),
+            const Padding(padding: EdgeInsets.only(top: 4, bottom: 8), child: Text('❌ 此班次的鬧鐘已關閉', style: TextStyle(color: Colors.red, fontSize: 12))),
           ] else ...[
             const SizedBox(height: 4),
             Row(
@@ -221,7 +220,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 label: '提早 $currentAdvance 分鐘',
                 activeColor: color,
                 inactiveColor: color.withOpacity(0.15),
-                onChanged: (val) => onSlider(val.round()), // 🛠️ round() 解決拖動斷點精準度
+                onChanged: (val) => onSlider(val.round()),
               ),
             ),
           ],
@@ -247,7 +246,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. 桌面小工具狀態
             Card(
               color: const Color(0xFFFFF9F2),
               elevation: 0,
@@ -269,7 +267,10 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                         Checkbox(
                           value: _widgetEnabled,
                           activeColor: Colors.green,
-                          onChanged: (val) => setState(() => _widgetEnabled = val ?? true),
+                          onChanged: (val) {
+                            setState(() => _widgetEnabled = val ?? true);
+                            _saveWidgetSettings(silent: true); // 即時背景儲存
+                          },
                         ),
                         const Text('已啟用', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                       ],
@@ -280,7 +281,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 16),
 
-            // 2. 選擇顯示隊伍
             const Text('選擇顯示隊伍', style: TextStyle(fontSize: 14, color: Colors.black54)),
             const SizedBox(height: 6),
             Container(
@@ -298,7 +298,8 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   onChanged: (val) {
                     if (val != null) {
                       setState(() => _selectedTeam = val);
-                      _loadLeaveSnapshot(val); // 🛠️ 核心修正：切換下拉選單時，同步重刷 Firestore 數據！
+                      _loadLeaveSnapshot(val);
+                      _saveWidgetSettings(silent: true); // 切換隊伍時即時背後儲存
                     }
                   },
                 ),
@@ -306,7 +307,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 16),
 
-            // 3. 顯示內容選項
             const Text('顯示內容選項', style: TextStyle(fontSize: 14, color: Colors.black54)),
             const SizedBox(height: 6),
             Card(
@@ -317,12 +317,14 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 title: const Text('顯示未來班次 (今日+2日)', style: TextStyle(fontSize: 14)),
                 value: _showNextShift,
                 activeColor: const Color(0xFF8D6E63),
-                onChanged: (val) => setState(() => _showNextShift = val ?? true),
+                onChanged: (val) {
+                  setState(() => _showNextShift = val ?? true);
+                  _saveWidgetSettings(silent: true);
+                },
               ),
             ),
             const SizedBox(height: 20),
 
-            // 4. 廠房班次獨立鬧鐘設定
             const Text('⏰ 廠房班次獨立鬧鐘設定', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Card(
@@ -334,26 +336,83 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     title: const Text('開啟返工智能鬧鐘功能', style: TextStyle(fontWeight: FontWeight.bold)),
                     value: _alarmEnabled,
                     activeColor: Colors.orange,
-                    onChanged: (val) => setState(() => _alarmEnabled = val),
+                    onChanged: (val) {
+                      setState(() => _alarmEnabled = val);
+                      _saveWidgetSettings(silent: true);
+                    },
                   ),
                   if (_alarmEnabled) ...[
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(title: '早班 (M) 鬧鐘', startTime: shiftTimes['M']!, isEnabled: _enableM, currentAdvance: _advanceM, color: const Color(0xFF1E88E5), onToggle: (val) => setState(() => _enableM = val), onSlider: (val) => setState(() => _advanceM = val)),
+                    _buildFlexibleAlarmSlider(
+                      title: '早班 (M) 鬧鐘',
+                      startTime: shiftTimes['M']!,
+                      isEnabled: _enableM,
+                      currentAdvance: _advanceM,
+                      color: const Color(0xFF1E88E5),
+                      onToggle: (val) {
+                        setState(() => _enableM = val);
+                        _saveWidgetSettings(silent: true);
+                      },
+                      onSlider: (val) => setState(() => _advanceM = val)
+                    ),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(title: 'L早班 (LM) 鬧鐘', startTime: shiftTimes['LM']!, isEnabled: _enableLM, currentAdvance: _advanceLM, color: const Color(0xFF43A047), onToggle: (val) => setState(() => _enableLM = val), onSlider: (val) => setState(() => _advanceLM = val)),
+                    _buildFlexibleAlarmSlider(
+                      title: 'L早班 (LM) 鬧鐘',
+                      startTime: shiftTimes['LM']!,
+                      isEnabled: _enableLM,
+                      currentAdvance: _advanceLM,
+                      color: const Color(0xFF43A047),
+                      onToggle: (val) {
+                        setState(() => _enableLM = val);
+                        _saveWidgetSettings(silent: true);
+                      },
+                      onSlider: (val) => setState(() => _advanceLM = val)
+                    ),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(title: '中班 (A) 鬧鐘', startTime: shiftTimes['A']!, isEnabled: _enableA, currentAdvance: _advanceA, color: const Color(0xFFFB8C00), onToggle: (val) => setState(() => _enableA = val), onSlider: (val) => setState(() => _advanceA = val)),
+                    _buildFlexibleAlarmSlider(
+                      title: '中班 (A) 鬧鐘',
+                      startTime: shiftTimes['A']!,
+                      isEnabled: _enableA,
+                      currentAdvance: _advanceA,
+                      color: const Color(0xFFFB8C00),
+                      onToggle: (val) {
+                        setState(() => _enableA = val);
+                        _saveWidgetSettings(silent: true);
+                      },
+                      onSlider: (val) => setState(() => _advanceA = val)
+                    ),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(title: 'L夜班 (LN) 鬧鐘', startTime: shiftTimes['LN']!, isEnabled: _enableLN, currentAdvance: _advanceLN, color: const Color(0xFF00838F), onToggle: (val) => setState(() => _enableLN = val), onSlider: (val) => setState(() => _advanceLN = val)),
+                    _buildFlexibleAlarmSlider(
+                      title: 'L夜班 (LN) 鬧鐘',
+                      startTime: shiftTimes['LN']!,
+                      isEnabled: _enableLN,
+                      currentAdvance: _advanceLN,
+                      color: const Color(0xFF00838F),
+                      onToggle: (val) {
+                        setState(() => _enableLN = val);
+                        _saveWidgetSettings(silent: true);
+                      },
+                      onSlider: (val) => setState(() => _advanceLN = val)
+                    ),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(title: '夜班 (N) 鬧鐘', startTime: shiftTimes['N']!, isEnabled: _enableN, currentAdvance: _advanceN, color: const Color(0xFF7B1FA2), onToggle: (val) => setState(() => _enableN = val), onSlider: (val) => setState(() => _advanceN = val)),
+                    _buildFlexibleAlarmSlider(
+                      title: '夜班 (N) 鬧鐘',
+                      startTime: shiftTimes['N']!,
+                      isEnabled: _enableN,
+                      currentAdvance: _advanceN,
+                      color: const Color(0xFF7B1FA2),
+                      onToggle: (val) {
+                        setState(() => _enableN = val);
+                        _saveWidgetSettings(silent: true);
+                      },
+                      onSlider: (val) => setState(() => _advanceN = val)
+                    ),
                   ],
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // 保存按鈕
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -363,14 +422,13 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: _saveWidgetSettings,
+                onPressed: () => _saveWidgetSettings(silent: false),
                 icon: const Icon(Icons.save),
                 label: const Text('儲存設定', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
             const SizedBox(height: 24),
 
-            // 5. 當班團隊成員網上快照區域
             const Text('📋 當班團隊成員網上快照', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             _buildLeaveSnapshotSection(),
@@ -380,7 +438,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     );
   }
 
-  /// 🛠️ 抽出快照 UI 邏輯，增加 Error 狀態渲染提升健壯度
   Widget _buildLeaveSnapshotSection() {
     if (_loadingLeave) {
       return const Padding(
