@@ -673,7 +673,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
                                     Text(
                                       day.day.toString(),
                                       style: TextStyle(
-                                        fontSize: isToday ? 14 : 12,
+                                        fontSize: isToday ? 14 : 12, // 淨係呢度將原本嘅 12 係今日時改成 14 放大
                                         fontWeight: FontWeight.bold,
                                         color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade600 : Colors.black87),
                                       ),
