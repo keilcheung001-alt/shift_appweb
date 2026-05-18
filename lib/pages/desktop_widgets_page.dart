@@ -52,24 +52,15 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   bool _loadingLeave = true;
   String? _errorMessage;
 
-  Timer? _snapshotTimer;
-
   @override
   void initState() {
     super.initState();
     _initData();
-
-    // 完美保留 30 秒自動更新，讓它默默在背景與 Firebase 同步最新動態
-    _snapshotTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (mounted) {
-        _loadLeaveSnapshot(_selectedTeam);
-      }
-    });
+    // 🗑️ 30秒定時器已徹底斬草除根！絕不默默浪費電力與流量
   }
 
   @override
   void dispose() {
-    _snapshotTimer?.cancel();
     super.dispose();
   }
 
@@ -108,7 +99,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     _loadLeaveSnapshot(_selectedTeam);
   }
 
-  // 徹底回歸你原本純粹的 Firebase 撈取邏輯，絕不加鎖卡死數據
+  // 🎯 修正後的乾淨快照解析邏輯
   Future<void> _loadLeaveSnapshot(String team) async {
     if (!mounted) return;
 
@@ -123,8 +114,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
       int count = 0;
       List<String> names = [];
-      String currentCommonShift = '()';
-      String tomorrowCommonShift = '()';
+      
+      Map<String, int> todayShiftCounts = {};
+      Map<String, int> tomorrowShiftCounts = {};
 
       for (var doc in snapshot.docs) {
         final data = doc.data();
@@ -132,28 +124,47 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         final shift = data['shift_time']?.toString() ?? data['shift']?.toString() ?? '正常當班';
         final nextShift = data['tomorrow_shift']?.toString() ?? data['next_shift']?.toString();
 
-        if (shift.contains('請假')) {
+        // 精準判定請假狀態 (相容 AL 與中文假字)
+        if (shift.toUpperCase().contains('AL') || shift.contains('請假') || shift.contains('假')) {
           count++;
           names.add(name);
-        } else if (shift != '正常當班' && currentCommonShift == '()') {
-          currentCommonShift = shift;
         }
 
-        if (nextShift != null && nextShift != '正常當班' && tomorrowCommonShift == '()') {
-          tomorrowCommonShift = nextShift;
+        // 清洗並提取真正的班次代號
+        String cleanTodayShift = shift.split(' ')[0].split('(')[0].trim();
+        if (cleanTodayShift != '正常當班' && cleanTodayShift.isNotEmpty) {
+          todayShiftCounts[cleanTodayShift] = (todayShiftCounts[cleanTodayShift] ?? 0) + 1;
+        }
+
+        if (nextShift != null) {
+          String cleanTomorrowShift = nextShift.split(' ')[0].split('(')[0].trim();
+          if (cleanTomorrowShift != '正常當班' && cleanTomorrowShift != '正常' && cleanTomorrowShift.isNotEmpty) {
+            tomorrowShiftCounts[cleanTomorrowShift] = (tomorrowShiftCounts[cleanTomorrowShift] ?? 0) + 1;
+          }
         }
       }
 
+      // 多數決判定大隊今日/明日真正的當班班次
+      String finalTodayShift = '正常';
+      if (todayShiftCounts.isNotEmpty) {
+        finalTodayShift = todayShiftCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+      }
+
+      String finalTomorrowShift = '正常';
+      if (tomorrowShiftCounts.isNotEmpty) {
+        finalTomorrowShift = tomorrowShiftCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+      }
+
       final now = DateTime.now();
-      final formattedTime = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}T${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+      final formattedTime = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
 
       if (mounted) {
         setState(() {
           _leaveCount = count;
           _leaveColleagues = names.isEmpty ? '無' : names.join('、');
           _lastUpdateTime = formattedTime;
-          _todayShift = currentCommonShift;
-          _tomorrowShift = tomorrowCommonShift == '()' ? '正常' : tomorrowCommonShift;
+          _todayShift = finalTodayShift;
+          _tomorrowShift = finalTomorrowShift;
           _loadingLeave = false;
         });
       }
@@ -358,7 +369,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   onChanged: (val) {
                     if (val != null) {
                       setState(() => _selectedTeam = val);
-                      _loadLeaveSnapshot(val);
+                      _loadLeaveSnapshot(val); // 這裡會主動更新
                     }
                   },
                 ),
@@ -486,13 +497,25 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                children: const [
-                  Icon(Icons.bar_chart, size: 16, color: Colors.blue),
-                  SizedBox(width: 4),
-                  Text(
-                    '最新快照資料',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.bar_chart, size: 16, color: Colors.blue),
+                      SizedBox(width: 4),
+                      Text(
+                        '最新快照資料',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                      ),
+                    ],
                   ),
+                  // 🌟 這裡加了一個手動重新整理按鈕，想看最新數據時點一下即可，不點絕不浪費流量
+                  IconButton(
+                    constraints: const BoxConstraints(),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.refresh, size: 18, color: Colors.orange),
+                    onPressed: () => _loadLeaveSnapshot(_selectedTeam),
+                  )
                 ],
               ),
               const SizedBox(height: 8),
