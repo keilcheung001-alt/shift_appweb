@@ -47,8 +47,9 @@ class _CancelLeaveRequestPageState extends State<CancelLeaveRequestPage> {
 
   Future<void> _initializePage() async {
     final team = await AuthUtil.getHomeGroup();
-    final name = await AuthUtil.getUserName();
-    final nickname = await AuthUtil.getUserNickname();
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('SPK_MY_NAME') ?? '';
+    final nickname = prefs.getString('SPK_NICKNAME') ?? '';
     setState(() {
       _myTeam = team.isEmpty ? 'A' : team;
       _myName = name;

@@ -177,7 +177,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
           const SizedBox(width: 16),
           Expanded(
             child: Column(
-              crossAxisAlignment: Cross CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(_userName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
