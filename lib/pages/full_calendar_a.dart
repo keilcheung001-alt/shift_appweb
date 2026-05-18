@@ -528,196 +528,197 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
   }
 
   Future<void> _updateWidgetSnapshot() async {
-      final today = DateTime.now();
-      final todayKey = dateKey(today);
-      final todayLeave = teamLeave[todayKey];
-      final leaveCount = (todayLeave?['names'] as List?)?.length ?? 0;
-      final leavers = (todayLeave?['names'] as List?)?.cast<String>() ?? [];
-      String shift = '';
-      if (todayLeave != null && todayLeave.containsKey('shift')) {
-        shift = todayLeave['shift'] as String? ?? '';
-      }
-      if (shift.isEmpty) {
-        shift = shiftForDate(today);
-      }
-      final shiftDisplay = SHIFT_DISPLAY[shift] ?? shift;
-      final shiftHour = SHIFT_START_HOURS[shift];
-      final shiftTime = shiftHour != null ? '$shiftHour:00' : '';
-      final tomorrow = today.add(const Duration(days: 1));
-      final tomorrowKey = dateKey(tomorrow);
-      final tomorrowLeave = teamLeave[tomorrowKey];
-      String nextShift1 = '';
-      if (tomorrowLeave != null && tomorrowLeave.containsKey('shift')) {
-        nextShift1 = tomorrowLeave['shift'] as String? ?? '';
-      }
-      if (nextShift1.isEmpty) {
-        nextShift1 = shiftForDate(tomorrow);
-      }
-      final nextLeavers1 = (tomorrowLeave?['names'] as List?)?.cast<String>() ?? [];
-      await WidgetSnapshotWriter.writeWidgetSnapshot(
-        loginGroup: widget.teamCode,
-        todayShift: shift,
-        shiftName: shiftDisplay,
-        shiftTime: shiftTime,
-        leaveCount: leaveCount,
-        leavers: leavers,
-        nextShift1: nextShift1,
-        nextShiftLeavers1: nextLeavers1,
-      );
+    final today = DateTime.now();
+    final todayKey = dateKey(today);
+    final todayLeave = teamLeave[todayKey];
+    final leaveCount = (todayLeave?['names'] as List?)?.length ?? 0;
+    final leavers = (todayLeave?['names'] as List?)?.cast<String>() ?? [];
+    String shift = '';
+    if (todayLeave != null && todayLeave.containsKey('shift')) {
+      shift = todayLeave['shift'] as String? ?? '';
     }
+    if (shift.isEmpty) {
+      shift = shiftForDate(today);
+    }
+    final shiftDisplay = SHIFT_DISPLAY[shift] ?? shift;
+    final shiftHour = SHIFT_START_HOURS[shift];
+    final shiftTime = shiftHour != null ? '$shiftHour:00' : '';
+    final tomorrow = today.add(const Duration(days: 1));
+    final tomorrowKey = dateKey(tomorrow);
+    final tomorrowLeave = teamLeave[tomorrowKey];
+    String nextShift1 = '';
+    if (tomorrowLeave != null && tomorrowLeave.containsKey('shift')) {
+      nextShift1 = tomorrowLeave['shift'] as String? ?? '';
+    }
+    if (nextShift1.isEmpty) {
+      nextShift1 = shiftForDate(tomorrow);
+    }
+    final nextLeavers1 = (tomorrowLeave?['names'] as List?)?.cast<String>() ?? [];
+    await WidgetSnapshotWriter.writeWidgetSnapshot(
+      loginGroup: widget.teamCode,
+      todayShift: shift,
+      shiftName: shiftDisplay,
+      shiftTime: shiftTime,
+      leaveCount: leaveCount,
+      leavers: leavers,
+      nextShift1: nextShift1,
+      nextShiftLeavers1: nextLeavers1,
+    );
+  }
 
-    @override
-    Widget build(BuildContext context) {
-      if (loading) {
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
-      final firstDayOfMonth = DateTime(currentMonth.year, currentMonth.month, 1);
-      final lastDayOfMonth = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-      final int daysBefore = firstDayOfMonth.weekday == DateTime.sunday ? 0 : firstDayOfMonth.weekday;
-      final int daysAfter = lastDayOfMonth.weekday == DateTime.sunday ? 6 : DateTime.saturday - lastDayOfMonth.weekday;
-      final DateTime calendarStartDate = firstDayOfMonth.subtract(Duration(days: daysBefore));
-      final DateTime calendarEndDate = lastDayOfMonth.add(Duration(days: daysAfter));
-      final int totalTiles = calendarEndDate.difference(calendarStartDate).inDays + 1;
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('D Team', style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.purple.shade600,
-          foregroundColor: Colors.white,
-          actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
-        ),
-        body: Column(
-          children: [
-            Row(
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final firstDayOfMonth = DateTime(currentMonth.year, currentMonth.month, 1);
+    final lastDayOfMonth = DateTime(currentMonth.year, currentMonth.month + 1, 0);
+    final int daysBefore = firstDayOfMonth.weekday == DateTime.sunday ? 0 : firstDayOfMonth.weekday;
+    final int daysAfter = lastDayOfMonth.weekday == DateTime.sunday ? 6 : DateTime.saturday - lastDayOfMonth.weekday;
+    final DateTime calendarStartDate = firstDayOfMonth.subtract(Duration(days: daysBefore));
+    final DateTime calendarEndDate = lastDayOfMonth.add(Duration(days: daysAfter));
+    final int totalTiles = calendarEndDate.difference(calendarStartDate).inDays + 1;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('A Team', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.blue.shade600,
+        foregroundColor: Colors.white,
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
+      ),
+      body: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
+              Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            color: Colors.grey.shade200,
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
-                Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
-              ],
+              children: '日一二三四五六'.split('').map((d) => Expanded(
+                child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
+              )).toList(),
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-              color: Colors.grey.shade200,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: '日一二三四五六'.split('').map((d) => Expanded(
-                  child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
-                )).toList(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              flex: 4,
-              child: InteractiveViewer(
-                minScale: 1.0,
-                maxScale: 3.0,
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(4),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 7,
-                    childAspectRatio: .9,
-                    crossAxisSpacing: 2,
-                    mainAxisSpacing: 2,
-                  ),
-              itemCount: totalTiles,
-              itemBuilder: (context, index) {
-                final day = calendarStartDate.add(Duration(days: index));
-                final bool isNotCurrentMonth = day.month != currentMonth.month;
-                final dk = dateKey(day);
-                final shift = shiftForDate(day);
-                final peopleCount = countPeopleForDate(dk);
-                final badgeColor = badgeColorForCount(peopleCount);
-                final today = DateTime.now();
-                final isPast = day.isBefore(DateTime(today.year, today.month, today.day));
-                final isPublicHoliday = publicHolidays.containsKey(dk);
-                final publicHolidayName = publicHolidays[dk]?['name'] ?? '';
-                final publicHolidayColorValue = publicHolidays[dk]?['color'];
-                final publicHolidayColor = publicHolidayColorValue != null ? Color(publicHolidayColorValue as int) : Colors.red.shade400;
-                final customHolidayData = customHolidays[dk];
-                final isCustomHoliday = customHolidayData != null;
-                final customLabel = customHolidayData?['name'] ?? '';
-                Color cellBg = shiftColor(shift);
-                if (isPast) cellBg = Colors.grey.shade200;
-                if (isPublicHoliday) cellBg = publicHolidayColor.withOpacity(0.2);
-                if (isCustomHoliday) {
-                  final colorValue = customHolidayData!['color'] as int?;
-                  cellBg = colorValue != null ? Color(colorValue).withOpacity(0.2) : Colors.orange.shade100;
-                }
-                if (isNotCurrentMonth) cellBg = cellBg.withOpacity(0.15);
-                final isToday = isSameDate(day, DateTime.now());
-                return Transform.scale(
-                  scale: isToday ? 1.2 : 1.0,
-                  alignment: Alignment.center,
-                  child: GestureDetector(
-                    onTap: () => openEditDialog(day),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: cellBg,
-                        border: Border.all(
-                          color: isToday ? Colors.grey.shade800 : (peopleCount > 0 ? badgeColor.withOpacity(0.5) : Colors.grey.shade400),
-                          width: isToday ? 2 : 1,
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      padding: const EdgeInsets.all(2),
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    day.day.toString(),
-                                    style: TextStyle(
-                                      fontSize: isToday ? 14 : 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade600 : Colors.black87),
-                                    ),
-                                  ),
-                                  if (isPublicHoliday) Tooltip(
-                                    message: publicHolidayName,
-                                    child: Text(' 🇭🇰', style: TextStyle(fontSize: 12, color: publicHolidayColor)),
-                                  ),
-                                ],
-                              ),
-                              Text(
-                                shift,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w600,
-                                  color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade500 : Colors.black54),
-                                ),
-                              ),
-                              if (customLabel.isNotEmpty && !isNotCurrentMonth)
-                                Text(
-                                  customLabel.length > 5 ? '${customLabel.substring(0, 5)}…' : customLabel,
-                                  style: const TextStyle(fontSize: 8, color: Colors.black, fontWeight: FontWeight.w600),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              const SizedBox(height: 2),
-                            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            flex: 4,
+            child: InteractiveViewer(
+              minScale: 1.0,
+              maxScale: 3.0,
+              child: GridView.builder(
+                padding: const EdgeInsets.all(4),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7,
+                  childAspectRatio: 0.9,
+                  crossAxisSpacing: 2,
+                  mainAxisSpacing: 2,
+                ),
+                itemCount: totalTiles,
+                itemBuilder: (context, index) {
+                  final day = calendarStartDate.add(Duration(days: index));
+                  final bool isNotCurrentMonth = day.month != currentMonth.month;
+                  final dk = dateKey(day);
+                  final shift = shiftForDate(day);
+                  final peopleCount = countPeopleForDate(dk);
+                  final badgeColor = badgeColorForCount(peopleCount);
+                  final today = DateTime.now();
+                  final isPast = day.isBefore(DateTime(today.year, today.month, today.day));
+                  final isPublicHoliday = publicHolidays.containsKey(dk);
+                  final publicHolidayName = publicHolidays[dk]?['name'] ?? '';
+                  final publicHolidayColorValue = publicHolidays[dk]?['color'];
+                  final publicHolidayColor = publicHolidayColorValue != null ? Color(publicHolidayColorValue as int) : Colors.red.shade400;
+                  final customHolidayData = customHolidays[dk];
+                  final isCustomHoliday = customHolidayData != null;
+                  final customLabel = customHolidayData?['name'] ?? '';
+                  Color cellBg = shiftColor(shift);
+                  if (isPast) cellBg = Colors.grey.shade200;
+                  if (isPublicHoliday) cellBg = publicHolidayColor.withOpacity(0.2);
+                  if (isCustomHoliday) {
+                    final colorValue = customHolidayData!['color'] as int?;
+                    cellBg = colorValue != null ? Color(colorValue).withOpacity(0.2) : Colors.orange.shade100;
+                  }
+                  if (isNotCurrentMonth) cellBg = cellBg.withOpacity(0.15);
+                  final isToday = isSameDate(day, DateTime.now());
+                  return Transform.scale(
+                    scale: isToday ? 1.2 : 1.0,
+                    alignment: Alignment.center,
+                    child: GestureDetector(
+                      onTap: () => openEditDialog(day),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: cellBg,
+                          border: Border.all(
+                            color: isToday ? Colors.grey.shade800 : (peopleCount > 0 ? badgeColor.withOpacity(0.5) : Colors.grey.shade400),
+                            width: isToday ? 2 : 1,
                           ),
-                          if (peopleCount > 0 && !isNotCurrentMonth)
-                            Positioned(
-                              top: -1,
-                              right: -1,
-                              child: Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-                                child: Text(peopleCount.toString(), style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
-                              ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        padding: const EdgeInsets.all(2),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      day.day.toString(),
+                                      style: TextStyle(
+                                        fontSize: isToday ? 14 : 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade600 : Colors.black87),
+                                      ),
+                                    ),
+                                    if (isPublicHoliday) Tooltip(
+                                      message: publicHolidayName,
+                                      child: Text(' 🇭🇰', style: TextStyle(fontSize: 12, color: publicHolidayColor)),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  shift,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                    color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade500 : Colors.black54),
+                                  ),
+                                ),
+                                if (customLabel.isNotEmpty && !isNotCurrentMonth)
+                                  Text(
+                                    customLabel.length > 5 ? '${customLabel.substring(0, 5)}…' : customLabel,
+                                    style: const TextStyle(fontSize: 8, color: Colors.black, fontWeight: FontWeight.w600),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                const SizedBox(height: 2),
+                              ],
                             ),
-                        ],
+                            if (peopleCount > 0 && !isNotCurrentMonth)
+                              Positioned(
+                                top: -1,
+                                right: -1,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
+                                  child: Text(peopleCount.toString(), style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
           const Divider(height: 1, thickness: 0.5),
