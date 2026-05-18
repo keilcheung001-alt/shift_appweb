@@ -236,28 +236,39 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   }
 
   Widget _buildTeamButtons() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: ['A', 'B', 'C', 'D'].map((t) {
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => _navigateToCalendar(t),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 6),
-                height: 55,
-                decoration: BoxDecoration(
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: ['A', 'B', 'C', 'D'].map((t) {
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Material(
                   color: _getTeamButtonColor(t),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12), // 跨平台強制圓角定義
+                  clipBehavior: Clip.antiAlias, // 強制像素裁剪，修正網頁端長方形 Bug
+                  child: InkWell(
+                    onTap: () => _navigateToCalendar(t), // 統一的主動觸發事件
+                    child: Container(
+                      height: 55,
+                      alignment: Alignment.center,
+                      child: Text(
+                        t,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                child: Center(child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
               ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
+            );
+          }).toList(),
+        ),
+      );
+    }
 
   Widget _buildMenuList() {
     final List<Widget> menus = [];

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart'; // 🛠️ 提供 kIsWeb 判定功能
 import '../utils/auth_util.dart';
 
 final MethodChannel alarmChannel = MethodChannel('com.example.shift_app/alarm');
@@ -35,6 +36,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
   bool _loading = true;
 
+  // 🛠️ 關鍵修正：補齊所有廠房班次的開工時間，防止讀取時 Null 指針崩潰
   final Map<String, String> shiftTimes = {
     'M': '08:00',
     'LM': '08:00',
@@ -56,7 +58,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   void initState() {
     super.initState();
     _initData();
-    // 🗑️ 30秒定時器已徹底斬草除根！絕不默默浪費電力與流量
   }
 
   @override
@@ -99,7 +100,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     _loadLeaveSnapshot(_selectedTeam);
   }
 
-  // 🎯 修正後的乾淨快照解析邏輯
   Future<void> _loadLeaveSnapshot(String team) async {
     if (!mounted) return;
 
@@ -114,7 +114,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
       int count = 0;
       List<String> names = [];
-      
+
       Map<String, int> todayShiftCounts = {};
       Map<String, int> tomorrowShiftCounts = {};
 
@@ -124,13 +124,11 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         final shift = data['shift_time']?.toString() ?? data['shift']?.toString() ?? '正常當班';
         final nextShift = data['tomorrow_shift']?.toString() ?? data['next_shift']?.toString();
 
-        // 精準判定請假狀態 (相容 AL 與中文假字)
         if (shift.toUpperCase().contains('AL') || shift.contains('請假') || shift.contains('假')) {
           count++;
           names.add(name);
         }
 
-        // 清洗並提取真正的班次代號
         String cleanTodayShift = shift.split(' ')[0].split('(')[0].trim();
         if (cleanTodayShift != '正常當班' && cleanTodayShift.isNotEmpty) {
           todayShiftCounts[cleanTodayShift] = (todayShiftCounts[cleanTodayShift] ?? 0) + 1;
@@ -144,7 +142,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         }
       }
 
-      // 多數決判定大隊今日/明日真正的當班班次
       String finalTodayShift = '正常';
       if (todayShiftCounts.isNotEmpty) {
         finalTodayShift = todayShiftCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
@@ -180,6 +177,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
   Future<void> _saveWidgetSettings() async {
     final prefs = await SharedPreferences.getInstance();
+
     await prefs.setBool('widget_enabled', _widgetEnabled);
     await prefs.setString('widget_team', _selectedTeam);
     await prefs.setBool('widget_show_next_shift', _showNextShift);
@@ -195,20 +193,35 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     await prefs.setBool('alarm_enable_LN', _enableLN);
     await prefs.setBool('alarm_enable_N', _enableN);
 
-    try {
-      await alarmChannel.invokeMethod('syncAlarms');
-    } catch (e) {
-      debugPrint('Channel sync error: $e');
+    // 🛠️ 跨平台核心分流：Web端安全跳過，手機端正常執行
+    if (!kIsWeb) {
+      try {
+        await alarmChannel.invokeMethod('syncAlarms');
+      } catch (e) {
+        debugPrint('Channel sync error: $e');
+      }
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 設定已儲存並同步鬧鐘')),
+        SnackBar(content: Text(kIsWeb ? '✅ 設定已儲存（網頁端已跳過鬧鐘同步）' : '✅ 設定已儲存並同步鬧鐘')),
       );
     }
   }
 
   Future<void> _testAlarmImmediately() async {
+    if (kIsWeb) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ 網頁端不支援系統鬧鐘測試，請在手機端測試'),
+            backgroundColor: Colors.brown,
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       await alarmChannel.invokeMethod('testAlarm', {'delaySeconds': 5});
       if (mounted) {
@@ -369,7 +382,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   onChanged: (val) {
                     if (val != null) {
                       setState(() => _selectedTeam = val);
-                      _loadLeaveSnapshot(val); // 這裡會主動更新
+                      _loadLeaveSnapshot(val);
                     }
                   },
                 ),
@@ -509,7 +522,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                       ),
                     ],
                   ),
-                  // 🌟 這裡加了一個手動重新整理按鈕，想看最新數據時點一下即可，不點絕不浪費流量
                   IconButton(
                     constraints: const BoxConstraints(),
                     padding: EdgeInsets.zero,
