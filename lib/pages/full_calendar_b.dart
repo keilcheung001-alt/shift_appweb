@@ -528,95 +528,98 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
   }
 
   Future<void> _updateWidgetSnapshot() async {
-    final today = DateTime.now();
-    final todayKey = dateKey(today);
-    final todayLeave = teamLeave[todayKey];
-    final leaveCount = (todayLeave?['names'] as List?)?.length ?? 0;
-    final leavers = (todayLeave?['names'] as List?)?.cast<String>() ?? [];
-    String shift = '';
-    if (todayLeave != null && todayLeave.containsKey('shift')) {
-      shift = todayLeave['shift'] as String? ?? '';
+      final today = DateTime.now();
+      final todayKey = dateKey(today);
+      final todayLeave = teamLeave[todayKey];
+      final leaveCount = (todayLeave?['names'] as List?)?.length ?? 0;
+      final leavers = (todayLeave?['names'] as List?)?.cast<String>() ?? [];
+      String shift = '';
+      if (todayLeave != null && todayLeave.containsKey('shift')) {
+        shift = todayLeave['shift'] as String? ?? '';
+      }
+      if (shift.isEmpty) {
+        shift = shiftForDate(today);
+      }
+      final shiftDisplay = SHIFT_DISPLAY[shift] ?? shift;
+      final shiftHour = SHIFT_START_HOURS[shift];
+      final shiftTime = shiftHour != null ? '$shiftHour:00' : '';
+      final tomorrow = today.add(const Duration(days: 1));
+      final tomorrowKey = dateKey(tomorrow);
+      final tomorrowLeave = teamLeave[tomorrowKey];
+      String nextShift1 = '';
+      if (tomorrowLeave != null && tomorrowLeave.containsKey('shift')) {
+        nextShift1 = tomorrowLeave['shift'] as String? ?? '';
+      }
+      if (nextShift1.isEmpty) {
+        nextShift1 = shiftForDate(tomorrow);
+      }
+      final nextLeavers1 = (tomorrowLeave?['names'] as List?)?.cast<String>() ?? [];
+      await WidgetSnapshotWriter.writeWidgetSnapshot(
+        loginGroup: widget.teamCode,
+        todayShift: shift,
+        shiftName: shiftDisplay,
+        shiftTime: shiftTime,
+        leaveCount: leaveCount,
+        leavers: leavers,
+        nextShift1: nextShift1,
+        nextShiftLeavers1: nextLeavers1,
+      );
     }
-    if (shift.isEmpty) {
-      shift = shiftForDate(today);
-    }
-    final shiftDisplay = SHIFT_DISPLAY[shift] ?? shift;
-    final shiftHour = SHIFT_START_HOURS[shift];
-    final shiftTime = shiftHour != null ? '$shiftHour:00' : '';
-    final tomorrow = today.add(const Duration(days: 1));
-    final tomorrowKey = dateKey(tomorrow);
-    final tomorrowLeave = teamLeave[tomorrowKey];
-    String nextShift1 = '';
-    if (tomorrowLeave != null && tomorrowLeave.containsKey('shift')) {
-      nextShift1 = tomorrowLeave['shift'] as String? ?? '';
-    }
-    if (nextShift1.isEmpty) {
-      nextShift1 = shiftForDate(tomorrow);
-    }
-    final nextLeavers1 = (tomorrowLeave?['names'] as List?)?.cast<String>() ?? [];
-    await WidgetSnapshotWriter.writeWidgetSnapshot(
-      loginGroup: widget.teamCode,
-      todayShift: shift,
-      shiftName: shiftDisplay,
-      shiftTime: shiftTime,
-      leaveCount: leaveCount,
-      leavers: leavers,
-      nextShift1: nextShift1,
-      nextShiftLeavers1: nextLeavers1,
-    );
-  }
 
-  @override
-  Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    final firstDayOfMonth = DateTime(currentMonth.year, currentMonth.month, 1);
-    final lastDayOfMonth = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-    final int daysBefore = firstDayOfMonth.weekday == DateTime.sunday ? 0 : firstDayOfMonth.weekday;
-    final int daysAfter = lastDayOfMonth.weekday == DateTime.sunday ? 6 : DateTime.saturday - lastDayOfMonth.weekday;
-    final DateTime calendarStartDate = firstDayOfMonth.subtract(Duration(days: daysBefore));
-    final DateTime calendarEndDate = lastDayOfMonth.add(Duration(days: daysAfter));
-    final int totalTiles = calendarEndDate.difference(calendarStartDate).inDays + 1;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('B Team', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green.shade600,
-        foregroundColor: Colors.white,
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
-      ),
-      body: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
-              Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            color: Colors.grey.shade200,
-            child: Row(
+    @override
+    Widget build(BuildContext context) {
+      if (loading) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      final firstDayOfMonth = DateTime(currentMonth.year, currentMonth.month, 1);
+      final lastDayOfMonth = DateTime(currentMonth.year, currentMonth.month + 1, 0);
+      final int daysBefore = firstDayOfMonth.weekday == DateTime.sunday ? 0 : firstDayOfMonth.weekday;
+      final int daysAfter = lastDayOfMonth.weekday == DateTime.sunday ? 6 : DateTime.saturday - lastDayOfMonth.weekday;
+      final DateTime calendarStartDate = firstDayOfMonth.subtract(Duration(days: daysBefore));
+      final DateTime calendarEndDate = lastDayOfMonth.add(Duration(days: daysAfter));
+      final int totalTiles = calendarEndDate.difference(calendarStartDate).inDays + 1;
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('D Team', style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.purple.shade600,
+          foregroundColor: Colors.white,
+          actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
+        ),
+        body: Column(
+          children: [
+            Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: '日一二三四五六'.split('').map((d) => Expanded(
-                child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
-              )).toList(),
+              children: [
+                IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
+                Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            flex: 4,
-            child: GridView.builder(
-              padding: const EdgeInsets.all(4),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7,
-                childAspectRatio: 1.15,
-                crossAxisSpacing: 2,
-                mainAxisSpacing: 2,
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+              color: Colors.grey.shade200,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: '日一二三四五六'.split('').map((d) => Expanded(
+                  child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
+                )).toList(),
               ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              flex: 4,
+              child: InteractiveViewer(
+                minScale: 1.0,
+                maxScale: 3.0,
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(4),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 7,
+                    childAspectRatio: .9,
+                    crossAxisSpacing: 2,
+                    mainAxisSpacing: 2,
+                  ),
               itemCount: totalTiles,
               itemBuilder: (context, index) {
                 final day = calendarStartDate.add(Duration(days: index));
