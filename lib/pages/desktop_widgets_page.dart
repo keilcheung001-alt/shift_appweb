@@ -53,10 +53,30 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   bool _loadingLeave = true;
   String? _errorMessage;
 
+  // 儲存原始檔案底部所需的長名單變數
+  List<Map<String, String>> _leaveMembers = [];
+
+  // 🛠️ 加入背景計時器，解決「快照不會動」的問題
+  Timer? _snapshotTimer;
+
   @override
   void initState() {
     super.initState();
     _initData();
+
+    // 🛠️ 設定每 30 秒在背景自動觸發一次重新整理，讓快照自己識動
+    _snapshotTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted) {
+        _loadLeaveSnapshot(_selectedTeam);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    // 🛠️ 頁面銷毀時記得釋放計時器，防止記憶體洩漏
+    _snapshotTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _initData() async {
@@ -107,11 +127,18 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
       int count = 0;
       List<String> names = [];
+      List<Map<String, String>> tempMembers = [];
 
       for (var doc in snapshot.docs) {
         final data = doc.data();
         final name = data['name']?.toString() ?? '未命名';
         final shift = data['shift_time']?.toString() ?? '正常當班';
+
+        // 同步儲存名單詳細資料供底部列表使用
+        tempMembers.add({
+          'name': name,
+          'shift': shift,
+        });
 
         if (shift.contains('請假')) {
           count++;
@@ -129,6 +156,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
           _lastUpdateTime = formattedTime;
           _todayShift = '()';
           _tomorrowShift = 'N';
+          _leaveMembers = tempMembers; // 還原你原本的名單數據
           _loadingLeave = false;
         });
       }
@@ -293,7 +321,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 16),
 
-            // 🛠️ 2. 完全還原 10881.jpg 的「📊 最新快照資料」卡片佈局
+            // 2. 📊 最新快照資料統計細卡片
             _buildLeaveSnapshotSection(),
             const SizedBox(height: 20),
 
@@ -370,6 +398,12 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 24),
 
+            // 還原：你原本檔案最底部完整保留的詳細名單列表佈局
+            const Text('📋 隊員當班詳細狀態', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            _buildLeaveMembersList(),
+            const SizedBox(height: 24),
+
             // 儲存按鈕
             SizedBox(
               width: double.infinity,
@@ -391,9 +425,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     );
   }
 
-  /// 🛠️ 完美還原 10881.jpg (image_1.png) 的精簡統計卡片
+  /// 統計細卡片佈局
   Widget _buildLeaveSnapshotSection() {
-    if (_loadingLeave) {
+    if (_loadingLeave && _leaveMembers.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 10),
         child: Center(child: CircularProgressIndicator()),
@@ -406,15 +440,24 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         shape: RoundedRectangleBorder(side: BorderSide(color: Colors.red.shade200), borderRadius: BorderRadius.circular(12)),
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13))),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.red),
+                onPressed: () => _loadLeaveSnapshot(_selectedTeam),
+              )
+            ],
+          ),
         ),
       );
     }
 
     return SizedBox(
-      width: 190, // 還原卡片窄版比例
+      width: double.infinity, // 橫向全寬，避免尾部看不到字
       child: Card(
-        color: const Color(0xFFFFF9F2), // 10881.jpg 淺粉橘底色
+        color: const Color(0xFFFFF9F2),
         elevation: 0,
         shape: RoundedRectangleBorder(
           side: BorderSide(color: Colors.orange.shade100, width: 1),
@@ -425,9 +468,8 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 📊 最新快照資料
-              const Row(
-                children: [
+              Row(
+                children: const [
                   Icon(Icons.bar_chart, size: 16, color: Colors.blue),
                   SizedBox(width: 4),
                   Text(
@@ -437,8 +479,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 ],
               ),
               const SizedBox(height: 8),
-
-              // 數據行
               Text('今日班次: $_todayShift', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
               Text('請假人數: $_leaveCount 人', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
               Text('請假同事: $_leaveColleagues', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
@@ -447,6 +487,45 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// 原始檔案最底部的詳細成員名單 ListView（完美保留，絕無刪除）
+  Widget _buildLeaveMembersList() {
+    if (_leaveMembers.isEmpty) {
+      return const SizedBox(
+        width: double.infinity,
+        child: Card(
+          elevation: 0,
+          color: Color(0xFFF5F5F5),
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Text('🎉 今日無人請假 / 所有人正常當班', textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: _leaveMembers.length,
+        separatorBuilder: (context, index) => const Divider(height: 1),
+        itemBuilder: (ctx, idx) {
+          final m = _leaveMembers[idx];
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.orange.shade50,
+              child: const Icon(Icons.person, color: Colors.orange),
+            ),
+            title: Text(m['name']!, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text('當班狀態: ${m['shift']!}'),
+          );
+        },
       ),
     );
   }

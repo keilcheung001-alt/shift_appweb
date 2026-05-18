@@ -20,7 +20,7 @@ class TeamMenuPage extends StatefulWidget {
 
 class _TeamMenuPageState extends State<TeamMenuPage> {
   String _currentTeam = 'A';
-  String _todayShift = '常班';
+  String _todayShift = '?班';
   String _userName = '';
   String _userNickname = '';
   String _userStaffId = '';
@@ -269,15 +269,9 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     ));
 
     menus.add(_buildMenuTile(
-      icon: Icons.cancel_presentation_outlined,
-      title: '取消請假申請',
-      onTap: () {},
-    ));
-
-    menus.add(_buildMenuTile(
-      icon: Icons.notifications_none,
-      title: '隊伍公告管理',
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => AnnouncementPage(team: _userGroup, canEdit: true))),
+      icon: Icons.calendar_month_outlined,
+      title: '假期與自訂節日管理',
+      onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
     ));
 
     menus.add(_buildMenuTile(
@@ -288,21 +282,32 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
     // SM 或 SR 都可以見到以下管理功能
     if (_isSuperAdmin || _isSR) {
+      // 🛠️ 審批請假：注入紅色特別色，一眼認出
       menus.add(_buildMenuTile(
         icon: Icons.gavel,
         title: '審批請假申請',
         onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
+        iconColor: Colors.red.shade700,
+        textColor: Colors.red.shade900,
+        backgroundColor: const Color(0xFFFFEBEE), // 淺紅色底
       ));
+
+      // 🛠️ 隊伍公告管理：注入黃橙特別色，明顯區分
       menus.add(_buildMenuTile(
-        icon: Icons.calendar_month_outlined,
-        title: '假期與自訂節日管理',
-        onTap: () => Navigator.pushNamed(context, ROUTE_HOLIDAYS),
+        icon: Icons.notifications_none,
+        title: '隊伍公告管理',
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => AnnouncementPage(team: _userGroup, canEdit: true))),
+        iconColor: Colors.orange.shade800,
+        textColor: Colors.orange.shade900,
+        backgroundColor: const Color(0xFFFFF8E1), // 淺黃色底
       ));
+
       menus.add(_buildMenuTile(
         icon: Icons.settings,
         title: 'Google Sheets 配置',
         onTap: () => Navigator.pushNamed(context, ROUTE_GOOGLE_SHEETS_CONFIG),
       ));
+
       menus.add(_buildMenuTile(
         icon: Icons.chat_bubble_outline,
         title: 'WhatsApp 通知配置',
@@ -313,13 +318,31 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     return ListView(children: menus);
   }
 
-  Widget _buildMenuTile({required IconData icon, required String title, required VoidCallback onTap}) {
+  // 🛠️ 擴充此功能：加入選填的顏色參數，用作高亮特別重要的管理項目
+  Widget _buildMenuTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    Color? iconColor,       // 新增：自訂圖標顏色
+    Color? textColor,       // 新增：自訂文字顏色
+    Color? backgroundColor, // 新增：自訂整行背景色
+  }) {
     return Container(
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFF0F0F0)))),
+      decoration: BoxDecoration(
+        color: backgroundColor ?? Colors.transparent, // 冇傳入就透明，有傳入就顯示特別色
+        border: const Border(bottom: BorderSide(color: Color(0xFFF0F0F0))),
+      ),
       child: ListTile(
-        leading: Icon(icon, color: const Color(0xFF3F51B5)),
-        title: Text(title, style: const TextStyle(color: Colors.black87, fontSize: 16)),
-        trailing: const Icon(Icons.chevron_right, color: Colors.black26),
+        leading: Icon(icon, color: iconColor ?? const Color(0xFF3F51B5)),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: textColor ?? Colors.black87,
+            fontSize: 16,
+            fontWeight: textColor != null ? FontWeight.bold : FontWeight.normal, // 有特別色時加粗字體
+          ),
+        ),
+        trailing: Icon(Icons.chevron_right, color: textColor?.withOpacity(0.6) ?? Colors.black26),
         onTap: onTap,
       ),
     );
