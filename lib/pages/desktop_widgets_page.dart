@@ -6,6 +6,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
+import 'package:cloud_firestore/cloud_firestore.dart'; // 💡 實打實加入 Firebase 庫
 
 import '../utils/auth_util.dart';
 import '../utils/widget_snapshot_writer.dart';
@@ -64,17 +65,15 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       _alarmEnabled = true;
       _alarmAdvanceMinutes = prefs.getInt('alarm_advance_minutes_$staffId') ?? 15;
 
-      // 💡 讀取 5 個班次各自嘅開關，如果未儲存過就預設為 true
       _alarmMEnabled = prefs.getBool('alarm_enabled_M_$staffId') ?? true;
       _alarmAEnabled = prefs.getBool('alarm_enabled_A_$staffId') ?? true;
       _alarmNEnabled = prefs.getBool('alarm_enabled_N_$staffId') ?? true;
       _alarmLMEnabled = prefs.getBool('alarm_enabled_LM_$staffId') ?? true;
       _alarmLNEnabled = prefs.getBool('alarm_enabled_LN_$staffId') ?? true;
     });
-    _updateNextAlarmTime();
+    await _updateNextAlarmTime(); // 💡 確保改用 await
   }
 
-  // 💡 檢查某個班次代號嘅鬧鐘開關有冇被使用者閂咗
   bool _isAlarmEnabledForShift(String shiftCode) {
     switch (shiftCode) {
       case 'M': return _alarmMEnabled;
@@ -82,21 +81,51 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       case 'N': return _alarmNEnabled;
       case 'LM': return _alarmLMEnabled;
       case 'LN': return _alarmLNEnabled;
-      default: return false; // 休息日（空字串或REST）直接不響
+      default: return false;
     }
   }
 
-  DateTime? _findNextAlarmTime() {
+  // 💡 呢個就係實打實「對號碼、對隊伍」去網上檢查請假嘅核心
+  Future<DateTime?> _findNextAlarmTime() async {
     final now = DateTime.now();
+    final staffId = await AuthUtil.getStaffId();
+    if (staffId.isEmpty) return null;
+
+    // 🎯 對隊伍：鎖定所屬隊伍的請假集合 (例如 a_team_leave)
+    String leaveCollection = '${_selectedTeam.toLowerCase()}_team_leave';
+
     for (int offset = 0; offset < 30; offset++) {
       final date = now.add(Duration(days: offset));
       final shift = _getShiftForDate(date);
       if (shift.isEmpty) continue;
 
-      // 💡 核心安全改動：如果呢個班次嘅鬧鐘俾使用者熄咗，直接跳過搵第二日！
+      // 1. 檢查這個班次的本地手機開關有沒有被關掉
       if (!_isAlarmEnabledForShift(shift)) continue;
 
-      // 💡 絕對不自己寫死時間，直接讀取你在 constants.dart 設定的 SHIFT_START_HOURS
+      // 2. 🔍 對號碼：連上 Firebase 檢查這一天你有沒有請假
+      final dateString = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+      try {
+        final leaveDoc = await FirebaseFirestore.instance
+            .collection(leaveCollection)
+            .doc(dateString)
+            .get();
+
+        if (leaveDoc.exists) {
+          final Map<String, dynamic> attendees = leaveDoc.data() ?? {};
+          // 檢查有沒有你這個號碼，而且狀態是不是已核准 (approved)
+          if (attendees.containsKey(staffId)) {
+            final userLeaveStatus = attendees[staffId]['status'];
+            if (userLeaveStatus == 'approved') {
+              debugPrint('🔔 偵測到號碼 $staffId 於 $dateString 請假已核准，自動跳過此日鬧鐘！');
+              continue; // 🎯 真的有請假！直接跳過這一天，去看下一天！
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('檢查 Firebase 請假出錯: $e');
+      }
+
+      // 3. 讀取 constants.dart 內部設定的開工小時
       final shiftHour = SHIFT_START_HOURS[shift];
       if (shiftHour == null || shiftHour == 0) continue;
 
@@ -110,12 +139,12 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     return null;
   }
 
-  void _updateNextAlarmTime() {
+  Future<void> _updateNextAlarmTime() async {
     if (!_alarmEnabled) {
       setState(() => _nextAlarmTime = null);
       return;
     }
-    final alarmTime = _findNextAlarmTime();
+    final alarmTime = await _findNextAlarmTime(); // 等待 Firebase 檢查完畢
     setState(() => _nextAlarmTime = alarmTime);
   }
 
@@ -129,7 +158,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       setState(() {
         _cachedData = snapshot;
       });
-      _updateNextAlarmTime();
+      await _updateNextAlarmTime();
     }
   }
 
@@ -142,12 +171,13 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     if (staffId.isNotEmpty) {
       await prefs.setInt('alarm_advance_minutes_$staffId', _alarmAdvanceMinutes);
 
-      // 💡 修正後嘅儲存邏輯，完全使用正確的 staffId 變數，絕不再報錯
       await prefs.setBool('alarm_enabled_M_$staffId', _alarmMEnabled);
       await prefs.setBool('alarm_enabled_A_$staffId', _alarmAEnabled);
       await prefs.setBool('alarm_enabled_N_$staffId', _alarmNEnabled);
       await prefs.setBool('alarm_enabled_LM_$staffId', _alarmLMEnabled);
       await prefs.setBool('alarm_enabled_LN_$staffId', _alarmLNEnabled);
+
+      await _updateNextAlarmTime(); // 儲存前先確保算好最新的時間
 
       await WidgetSnapshotWriter.writeAlarmSnapshot(
         staffId: staffId,
@@ -184,7 +214,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       await prefs.setInt('alarm_advance_minutes_$staffId', minutes);
     }
 
-    _updateNextAlarmTime();
+    await _updateNextAlarmTime();
 
     if (_alarmEnabled) {
       await _scheduleAlarm();
@@ -201,7 +231,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
   Future<void> _scheduleAlarm() async {
     if (!_alarmEnabled) return;
-    final alarmTime = _findNextAlarmTime();
+    final alarmTime = await _findNextAlarmTime(); // 確保拿到經過請假過濾的時間
     if (alarmTime == null) return;
 
     await alarmChannel.invokeMethod('scheduleAlarm', {
@@ -209,7 +239,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       'triggerTime': alarmTime.millisecondsSinceEpoch,
     });
 
-    _updateNextAlarmTime();
+    await _updateNextAlarmTime();
   }
 
   String _getShiftForDate(DateTime date) {
@@ -240,6 +270,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
       ),
+      backgroundColor: Colors.grey.shade50,
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -322,7 +353,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     const Text('⏰ 工作鬧鐘設定', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
 
-                    // 完全跟足 constants.dart 檔案設定的 5 個班次代號與名稱，絕不作任何時間字眼
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -339,9 +369,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                             value: _alarmMEnabled,
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            onChanged: (val) {
+                            onChanged: (val) async {
                               setState(() => _alarmMEnabled = val ?? true);
-                              _updateNextAlarmTime();
+                              await _updateNextAlarmTime();
                             },
                           ),
                           CheckboxListTile(
@@ -349,9 +379,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                             value: _alarmAEnabled,
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            onChanged: (val) {
+                            onChanged: (val) async {
                               setState(() => _alarmAEnabled = val ?? true);
-                              _updateNextAlarmTime();
+                              await _updateNextAlarmTime();
                             },
                           ),
                           CheckboxListTile(
@@ -359,9 +389,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                             value: _alarmNEnabled,
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            onChanged: (val) {
+                            onChanged: (val) async {
                               setState(() => _alarmNEnabled = val ?? true);
-                              _updateNextAlarmTime();
+                              await _updateNextAlarmTime();
                             },
                           ),
                           CheckboxListTile(
@@ -369,9 +399,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                             value: _alarmLMEnabled,
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            onChanged: (val) {
+                            onChanged: (val) async {
                               setState(() => _alarmLMEnabled = val ?? true);
-                              _updateNextAlarmTime();
+                              await _updateNextAlarmTime();
                             },
                           ),
                           CheckboxListTile(
@@ -379,9 +409,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                             value: _alarmLNEnabled,
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            onChanged: (val) {
+                            onChanged: (val) async {
                               setState(() => _alarmLNEnabled = val ?? true);
-                              _updateNextAlarmTime();
+                              await _updateNextAlarmTime();
                             },
                           ),
                         ],
@@ -403,7 +433,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                               setState(() {
                                 _alarmAdvanceMinutes = val.round();
                               });
-                              _updateNextAlarmTime();
                             },
                             onChangeEnd: (val) {
                               _updateAdvanceMinutes(val.round());
@@ -441,7 +470,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('下一個鬧鐘 (已自動過濾未啟用班次)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+                            const Text('下一個鬧鐘 (已自動過濾未啟用及已請假班次)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
                             const SizedBox(height: 4),
                             Text(
                               '${_nextAlarmTime!.year}-${_nextAlarmTime!.month.toString().padLeft(2, '0')}-${_nextAlarmTime!.day.toString().padLeft(2, '0')} '
@@ -522,7 +551,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   Text('• 長按手機桌面空白位置 > 加入 Widget', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
                   Text('• 鬧鐘會喺已啟用班次開始前提醒你', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
                   Text('• 如果關閉了某個班次的開關，系統會自動跳過不設鬧鐘', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                  Text('• 如果請咗假（已核准），當日亦唔會響鬧鐘', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
+                  Text('• 如果請咗假（已核准），兩部手機均會連線雲端自動跳過不響', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
                 ],
               ),
             ),

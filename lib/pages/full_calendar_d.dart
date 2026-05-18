@@ -279,11 +279,22 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final entry = monthLeaves[index];
         final info = entry.value;
         final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
+
+        // 🌟 安全抓取 D 隊底層的 nicknames 變數
+        final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
+
         final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
         final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
         final Map<String, Map<String, dynamic>> merged = {};
         for (int i = 0; i < names.length; i++) {
           final name = names[i];
+
+          // 🌟 優先用手足的暱稱，如果沒填，才用中文全名
+          String displayName = name;
+          if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
+            displayName = nicknames[i].trim();
+          }
+
           String reason = i < reasons.length ? reasons[i].trim() : '';
           if (reason.isEmpty) continue;
           final status = i < statuses.length ? statuses[i] : 'pending';
@@ -291,11 +302,12 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
           final firstType = parts.first;
           final allSame = parts.every((p) => p == firstType);
           final count = parts.length;
-          final key = '$name|$firstType|$status';
+
+          final key = '$displayName|$firstType|$status';
           if (allSame && count > 1) {
-            merged[key] = {'name': name, 'type': firstType, 'days': count, 'status': status};
+            merged[key] = {'name': displayName, 'type': firstType, 'days': count, 'status': status};
           } else {
-            merged['$name|$reason|$status'] = {'name': name, 'type': reason, 'days': 1, 'status': status};
+            merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
           }
         }
         final pairs = merged.values.map((m) {

@@ -257,71 +257,84 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
   }
 
   Widget buildSummaryList() {
-    final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
-    final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-    final monthLeaves = teamLeave.entries
-        .where((entry) {
-          try {
-            final date = DateTime.parse(entry.key);
-            return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
-          } catch (_) {
-            return false;
+      final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
+      final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
+      final monthLeaves = teamLeave.entries
+          .where((entry) {
+            try {
+              final date = DateTime.parse(entry.key);
+              return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
+            } catch (_) {
+              return false;
+            }
+          })
+          .toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      if (monthLeaves.isEmpty) {
+        return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
+      }
+      return ListView.builder(
+        itemCount: monthLeaves.length,
+        itemBuilder: (context, index) {
+          final entry = monthLeaves[index];
+          final info = entry.value;
+          final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
+
+          // 🌟 實打實直接對接你底層第 174 行的 nicknames，絕不報錯
+          final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
+
+          final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
+          final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
+          final Map<String, Map<String, dynamic>> merged = {};
+          for (int i = 0; i < names.length; i++) {
+            final name = names[i];
+
+            // 🌟 救火核心：如果這個手足有入暱稱，就顯示暱稱；如果沒有填，就用返全名
+            String displayName = name;
+            if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
+              displayName = nicknames[i].trim();
+            }
+
+            String reason = i < reasons.length ? reasons[i].trim() : '';
+            if (reason.isEmpty) continue;
+            final status = i < statuses.length ? statuses[i] : 'pending';
+            final parts = reason.split('-');
+            final firstType = parts.first;
+            final allSame = parts.every((p) => p == firstType);
+            final count = parts.length;
+
+            // 這裡的 Key 改用全新篩選出來的 displayName 綁定
+            final key = '$displayName|$firstType|$status';
+            if (allSame && count > 1) {
+              merged[key] = {'name': displayName, 'type': firstType, 'days': count, 'status': status};
+            } else {
+              merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
+            }
           }
-        })
-        .toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-    if (monthLeaves.isEmpty) {
-      return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
+          final pairs = merged.values.map((m) {
+            final days = m['days'] as int;
+            final type = m['type'] as String;
+            final name = m['name'] as String;
+            final status = m['status'] as String;
+            final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
+            if (days > 1) {
+              return '$name ($type x$days)$statusIcon';
+            } else {
+              return '$name ($type)$statusIcon';
+            }
+          }).toList();
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              '${entry.key}: ${pairs.join(', ')}',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          );
+        },
+      );
     }
-    return ListView.builder(
-      itemCount: monthLeaves.length,
-      itemBuilder: (context, index) {
-        final entry = monthLeaves[index];
-        final info = entry.value;
-        final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
-        final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
-        final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
-        final Map<String, Map<String, dynamic>> merged = {};
-        for (int i = 0; i < names.length; i++) {
-          final name = names[i];
-          String reason = i < reasons.length ? reasons[i].trim() : '';
-          if (reason.isEmpty) continue;
-          final status = i < statuses.length ? statuses[i] : 'pending';
-          final parts = reason.split('-');
-          final firstType = parts.first;
-          final allSame = parts.every((p) => p == firstType);
-          final count = parts.length;
-          final key = '$name|$firstType|$status';
-          if (allSame && count > 1) {
-            merged[key] = {'name': name, 'type': firstType, 'days': count, 'status': status};
-          } else {
-            merged['$name|$reason|$status'] = {'name': name, 'type': reason, 'days': 1, 'status': status};
-          }
-        }
-        final pairs = merged.values.map((m) {
-          final days = m['days'] as int;
-          final type = m['type'] as String;
-          final name = m['name'] as String;
-          final status = m['status'] as String;
-          final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
-          if (days > 1) {
-            return '$name ($type x$days)$statusIcon';
-          } else {
-            return '$name ($type)$statusIcon';
-          }
-        }).toList();
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Text(
-            '${entry.key}: ${pairs.join(', ')}',
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
-          ),
-        );
-      },
-    );
-  }
 
   Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
     if (myName.trim().isEmpty) {

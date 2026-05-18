@@ -6,6 +6,7 @@ import '../constants/constants.dart';
 import 'my_leave_page.dart';
 import 'announcement_page.dart';
 import 'desktop_widgets_page.dart';
+import 'cancel_leave_request_page.dart'; // 💡 實打實導入正確的取消請假頁面
 import 'full_calendar_a.dart';
 import 'full_calendar_b.dart';
 import 'full_calendar_c.dart';
@@ -176,7 +177,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
           const SizedBox(width: 16),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: Cross CrossAxisAlignment.start,
               children: [
                 Text(_userName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
@@ -236,39 +237,39 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
   }
 
   Widget _buildTeamButtons() {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: ['A', 'B', 'C', 'D'].map((t) {
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Material(
-                  color: _getTeamButtonColor(t),
-                  borderRadius: BorderRadius.circular(12), // 跨平台強制圓角定義
-                  clipBehavior: Clip.antiAlias, // 強制像素裁剪，修正網頁端長方形 Bug
-                  child: InkWell(
-                    onTap: () => _navigateToCalendar(t), // 統一的主動觸發事件
-                    child: Container(
-                      height: 55,
-                      alignment: Alignment.center,
-                      child: Text(
-                        t,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: ['A', 'B', 'C', 'D'].map((t) {
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Material(
+                color: _getTeamButtonColor(t),
+                borderRadius: BorderRadius.circular(12),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _navigateToCalendar(t),
+                  child: Container(
+                    height: 55,
+                    alignment: Alignment.center,
+                    child: Text(
+                      t,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                 ),
               ),
-            );
-          }).toList(),
-        ),
-      );
-    }
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 
   Widget _buildMenuList() {
     final List<Widget> menus = [];
@@ -277,6 +278,16 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
       icon: Icons.history,
       title: '我的請假記錄',
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyLeavePage())),
+    ));
+
+    // 🎯 修正核心：一鍵跳轉到正版「取消請假」頁面，不再進去鬧鐘頁面
+    menus.add(_buildMenuTile(
+      icon: Icons.cancel_presentation,
+      title: '取消已申請假期',
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const CancelLeaveRequestPage()),
+      ),
     ));
 
     menus.add(_buildMenuTile(
@@ -293,24 +304,22 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
 
     // SM 或 SR 都可以見到以下管理功能
     if (_isSuperAdmin || _isSR) {
-      // 🛠️ 審批請假：注入紅色特別色，一眼認出
       menus.add(_buildMenuTile(
         icon: Icons.gavel,
         title: '審批請假申請',
         onTap: () => Navigator.pushNamed(context, ROUTE_APPROVAL),
         iconColor: Colors.red.shade700,
         textColor: Colors.red.shade900,
-        backgroundColor: const Color(0xFFFFEBEE), // 淺紅色底
+        backgroundColor: const Color(0xFFFFEBEE),
       ));
 
-      // 🛠️ 隊伍公告管理：注入黃橙特別色，明顯區分
       menus.add(_buildMenuTile(
         icon: Icons.notifications_none,
         title: '隊伍公告管理',
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => AnnouncementPage(team: _userGroup, canEdit: true))),
         iconColor: Colors.orange.shade800,
         textColor: Colors.orange.shade900,
-        backgroundColor: const Color(0xFFFFF8E1), // 淺黃色底
+        backgroundColor: const Color(0xFFFFF8E1),
       ));
 
       menus.add(_buildMenuTile(
@@ -329,18 +338,17 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
     return ListView(children: menus);
   }
 
-  // 🛠️ 擴充此功能：加入選填的顏色參數，用作高亮特別重要的管理項目
   Widget _buildMenuTile({
     required IconData icon,
     required String title,
     required VoidCallback onTap,
-    Color? iconColor,       // 新增：自訂圖標顏色
-    Color? textColor,       // 新增：自訂文字顏色
-    Color? backgroundColor, // 新增：自訂整行背景色
+    Color? iconColor,
+    Color? textColor,
+    Color? backgroundColor,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: backgroundColor ?? Colors.transparent, // 冇傳入就透明，有傳入就顯示特別色
+        color: backgroundColor ?? Colors.transparent,
         border: const Border(bottom: BorderSide(color: Color(0xFFF0F0F0))),
       ),
       child: ListTile(
@@ -350,7 +358,7 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
           style: TextStyle(
             color: textColor ?? Colors.black87,
             fontSize: 16,
-            fontWeight: textColor != null ? FontWeight.bold : FontWeight.normal, // 有特別色時加粗字體
+            fontWeight: textColor != null ? FontWeight.bold : FontWeight.normal,
           ),
         ),
         trailing: Icon(Icons.chevron_right, color: textColor?.withOpacity(0.6) ?? Colors.black26),
