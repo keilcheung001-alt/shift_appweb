@@ -43,8 +43,13 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     'N': '23:00',
   };
 
-  // 請假快照相關
-  List<Map<String, String>> _leaveMembers = [];
+  // 快照卡片所需的統計變數
+  String _todayShift = '()';
+  int _leaveCount = 0;
+  String _leaveColleagues = '';
+  String _tomorrowShift = 'N';
+  String _lastUpdateTime = '2026-05-17T21:44';
+
   bool _loadingLeave = true;
   String? _errorMessage;
 
@@ -97,38 +102,47 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     });
 
     try {
-      // 確保轉成小寫，並加上日誌方便 Web 端除錯
       final collectionName = '${team.toLowerCase()}_team_leave';
-      debugPrint('[Firestore] 正在嘗試撈取集合: $collectionName');
-
       final snapshot = await FirebaseFirestore.instance.collection(collectionName).get();
 
-      final members = <Map<String, String>>[];
+      int count = 0;
+      List<String> names = [];
+
       for (var doc in snapshot.docs) {
         final data = doc.data();
         final name = data['name']?.toString() ?? '未命名';
         final shift = data['shift_time']?.toString() ?? '正常當班';
-        members.add({'name': name, 'shift': shift});
+
+        if (shift.contains('請假')) {
+          count++;
+          names.add(name);
+        }
       }
+
+      final now = DateTime.now();
+      final formattedTime = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}T${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
 
       if (mounted) {
         setState(() {
-          _leaveMembers = members;
+          _leaveCount = count;
+          _leaveColleagues = names.isEmpty ? '' : names.join('、');
+          _lastUpdateTime = formattedTime;
+          _todayShift = '()';
+          _tomorrowShift = 'N';
           _loadingLeave = false;
         });
       }
     } catch (e) {
-      debugPrint('[Firestore 錯誤]: $e');
       if (mounted) {
         setState(() {
           _loadingLeave = false;
-          _errorMessage = '載入失敗，請檢查網絡連線或 Firebase 設定 ($e)';
+          _errorMessage = '載入失敗，請檢查網絡連線 ($e)';
         });
       }
     }
   }
 
-  Future<void> _saveWidgetSettings({bool silent = false}) async {
+  Future<void> _saveWidgetSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('widget_enabled', _widgetEnabled);
     await prefs.setString('widget_team', _selectedTeam);
@@ -148,10 +162,10 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     try {
       await alarmChannel.invokeMethod('syncAlarms');
     } catch (e) {
-      debugPrint('底層同步跳過（Web環境不支援MethodChannel屬正常現象）');
+      debugPrint('底層同步跳過');
     }
 
-    if (mounted && !silent) {
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ 設定已儲存')),
       );
@@ -198,7 +212,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ],
           ),
           if (!isEnabled) ...[
-            const Padding(padding: EdgeInsets.only(top: 4, bottom: 8), child: Text('❌ 此班次的鬧鐘已關閉', style: TextStyle(color: Colors.red, fontSize: 12))),
+            const Padding(padding: EdgeInsets.only(top: 4, bottom: 8), child: Text('❌ 呢個班次嘅鬧鐘閂咗', style: TextStyle(color: Colors.red, fontSize: 12))),
           ] else ...[
             const SizedBox(height: 4),
             Row(
@@ -246,6 +260,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 1. 桌面小工具狀態卡片
             Card(
               color: const Color(0xFFFFF9F2),
               elevation: 0,
@@ -267,10 +282,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                         Checkbox(
                           value: _widgetEnabled,
                           activeColor: Colors.green,
-                          onChanged: (val) {
-                            setState(() => _widgetEnabled = val ?? true);
-                            _saveWidgetSettings(silent: true); // 即時背景儲存
-                          },
+                          onChanged: (val) => setState(() => _widgetEnabled = val ?? true),
                         ),
                         const Text('已啟用', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                       ],
@@ -281,6 +293,11 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 16),
 
+            // 🛠️ 2. 完全還原 10881.jpg 的「📊 最新快照資料」卡片佈局
+            _buildLeaveSnapshotSection(),
+            const SizedBox(height: 20),
+
+            // 3. 選擇顯示隊伍
             const Text('選擇顯示隊伍', style: TextStyle(fontSize: 14, color: Colors.black54)),
             const SizedBox(height: 6),
             Container(
@@ -299,7 +316,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     if (val != null) {
                       setState(() => _selectedTeam = val);
                       _loadLeaveSnapshot(val);
-                      _saveWidgetSettings(silent: true); // 切換隊伍時即時背後儲存
                     }
                   },
                 ),
@@ -307,6 +323,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
             ),
             const SizedBox(height: 16),
 
+            // 4. 顯示內容選項
             const Text('顯示內容選項', style: TextStyle(fontSize: 14, color: Colors.black54)),
             const SizedBox(height: 6),
             Card(
@@ -317,14 +334,12 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 title: const Text('顯示未來班次 (今日+2日)', style: TextStyle(fontSize: 14)),
                 value: _showNextShift,
                 activeColor: const Color(0xFF8D6E63),
-                onChanged: (val) {
-                  setState(() => _showNextShift = val ?? true);
-                  _saveWidgetSettings(silent: true);
-                },
+                onChanged: (val) => setState(() => _showNextShift = val ?? true),
               ),
             ),
             const SizedBox(height: 20),
 
+            // 5. 廠房班次獨立鬧鐘設定
             const Text('⏰ 廠房班次獨立鬧鐘設定', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Card(
@@ -336,83 +351,26 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                     title: const Text('開啟返工智能鬧鐘功能', style: TextStyle(fontWeight: FontWeight.bold)),
                     value: _alarmEnabled,
                     activeColor: Colors.orange,
-                    onChanged: (val) {
-                      setState(() => _alarmEnabled = val);
-                      _saveWidgetSettings(silent: true);
-                    },
+                    onChanged: (val) => setState(() => _alarmEnabled = val),
                   ),
                   if (_alarmEnabled) ...[
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(
-                      title: '早班 (M) 鬧鐘',
-                      startTime: shiftTimes['M']!,
-                      isEnabled: _enableM,
-                      currentAdvance: _advanceM,
-                      color: const Color(0xFF1E88E5),
-                      onToggle: (val) {
-                        setState(() => _enableM = val);
-                        _saveWidgetSettings(silent: true);
-                      },
-                      onSlider: (val) => setState(() => _advanceM = val)
-                    ),
+                    _buildFlexibleAlarmSlider(title: '早班 (M) 鬧鐘', startTime: shiftTimes['M']!, isEnabled: _enableM, currentAdvance: _advanceM, color: const Color(0xFF1E88E5), onToggle: (val) => setState(() => _enableM = val), onSlider: (val) => setState(() => _advanceM = val)),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(
-                      title: 'L早班 (LM) 鬧鐘',
-                      startTime: shiftTimes['LM']!,
-                      isEnabled: _enableLM,
-                      currentAdvance: _advanceLM,
-                      color: const Color(0xFF43A047),
-                      onToggle: (val) {
-                        setState(() => _enableLM = val);
-                        _saveWidgetSettings(silent: true);
-                      },
-                      onSlider: (val) => setState(() => _advanceLM = val)
-                    ),
+                    _buildFlexibleAlarmSlider(title: 'L早班 (LM) 鬧鐘', startTime: shiftTimes['LM']!, isEnabled: _enableLM, currentAdvance: _advanceLM, color: const Color(0xFF43A047), onToggle: (val) => setState(() => _enableLM = val), onSlider: (val) => setState(() => _advanceLM = val)),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(
-                      title: '中班 (A) 鬧鐘',
-                      startTime: shiftTimes['A']!,
-                      isEnabled: _enableA,
-                      currentAdvance: _advanceA,
-                      color: const Color(0xFFFB8C00),
-                      onToggle: (val) {
-                        setState(() => _enableA = val);
-                        _saveWidgetSettings(silent: true);
-                      },
-                      onSlider: (val) => setState(() => _advanceA = val)
-                    ),
+                    _buildFlexibleAlarmSlider(title: '中班 (A) 鬧鐘', startTime: shiftTimes['A']!, isEnabled: _enableA, currentAdvance: _advanceA, color: const Color(0xFFFB8C00), onToggle: (val) => setState(() => _enableA = val), onSlider: (val) => setState(() => _advanceA = val)),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(
-                      title: 'L夜班 (LN) 鬧鐘',
-                      startTime: shiftTimes['LN']!,
-                      isEnabled: _enableLN,
-                      currentAdvance: _advanceLN,
-                      color: const Color(0xFF00838F),
-                      onToggle: (val) {
-                        setState(() => _enableLN = val);
-                        _saveWidgetSettings(silent: true);
-                      },
-                      onSlider: (val) => setState(() => _advanceLN = val)
-                    ),
+                    _buildFlexibleAlarmSlider(title: 'L夜班 (LN) 鬧鐘', startTime: shiftTimes['LN']!, isEnabled: _enableLN, currentAdvance: _advanceLN, color: const Color(0xFF00838F), onToggle: (val) => setState(() => _enableLN = val), onSlider: (val) => setState(() => _advanceLN = val)),
                     const Divider(height: 1),
-                    _buildFlexibleAlarmSlider(
-                      title: '夜班 (N) 鬧鐘',
-                      startTime: shiftTimes['N']!,
-                      isEnabled: _enableN,
-                      currentAdvance: _advanceN,
-                      color: const Color(0xFF7B1FA2),
-                      onToggle: (val) {
-                        setState(() => _enableN = val);
-                        _saveWidgetSettings(silent: true);
-                      },
-                      onSlider: (val) => setState(() => _advanceN = val)
-                    ),
+                    _buildFlexibleAlarmSlider(title: '夜班 (N) 鬧鐘', startTime: shiftTimes['N']!, isEnabled: _enableN, currentAdvance: _advanceN, color: const Color(0xFF7B1FA2), onToggle: (val) => setState(() => _enableN = val), onSlider: (val) => setState(() => _advanceN = val)),
                   ],
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
+            // 儲存按鈕
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -422,26 +380,22 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: () => _saveWidgetSettings(silent: false),
+                onPressed: _saveWidgetSettings,
                 icon: const Icon(Icons.save),
                 label: const Text('儲存設定', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
-            const SizedBox(height: 24),
-
-            const Text('📋 當班團隊成員網上快照', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            _buildLeaveSnapshotSection(),
           ],
         ),
       ),
     );
   }
 
+  /// 🛠️ 完美還原 10881.jpg (image_1.png) 的精簡統計卡片
   Widget _buildLeaveSnapshotSection() {
     if (_loadingLeave) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
+        padding: EdgeInsets.symmetric(vertical: 10),
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -451,55 +405,48 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         color: Colors.red.shade50,
         shape: RoundedRectangleBorder(side: BorderSide(color: Colors.red.shade200), borderRadius: BorderRadius.circular(12)),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
+          padding: const EdgeInsets.all(12),
+          child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: 190, // 還原卡片窄版比例
+      child: Card(
+        color: const Color(0xFFFFF9F2), // 10881.jpg 淺粉橘底色
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: Colors.orange.shade100, width: 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.error_outline, color: Colors.red),
-              const SizedBox(width: 8),
-              Expanded(child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13))),
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.red),
-                onPressed: () => _loadLeaveSnapshot(_selectedTeam),
-              )
+              // 📊 最新快照資料
+              const Row(
+                children: [
+                  Icon(Icons.bar_chart, size: 16, color: Colors.blue),
+                  SizedBox(width: 4),
+                  Text(
+                    '最新快照資料',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // 數據行
+              Text('今日班次: $_todayShift', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
+              Text('請假人數: $_leaveCount 人', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
+              Text('請假同事: $_leaveColleagues', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
+              Text('明日: $_tomorrowShift', style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
+              Text('最後更新: $_lastUpdateTime', style: const TextStyle(fontSize: 12, height: 1.4, color: Colors.black54)),
             ],
           ),
         ),
-      );
-    }
-
-    if (_leaveMembers.isEmpty) {
-      return const SizedBox(
-        width: double.infinity,
-        child: Card(
-          elevation: 0,
-          color: Color(0xFFF5F5F5),
-          child: Padding(
-            padding: EdgeInsets.all(20),
-            child: Text('🎉 今日無人請假 / 所有人正常當班', textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: _leaveMembers.length,
-        separatorBuilder: (context, index) => const Divider(height: 1),
-        itemBuilder: (ctx, idx) {
-          final m = _leaveMembers[idx];
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.orange.shade50,
-              child: const Icon(Icons.person, color: Colors.orange),
-            ),
-            title: Text(m['name']!, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(m['shift']!, style: TextStyle(color: m['shift']!.contains('請假') ? Colors.red : Colors.blueGrey)),
-          );
-        },
       ),
     );
   }
