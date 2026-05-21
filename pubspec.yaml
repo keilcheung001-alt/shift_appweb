@@ -4,7 +4,7 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'  # 就係要加返呢個範圍
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -19,6 +19,7 @@ dependencies:
   permission_handler: ^11.4.0
   android_intent_plus: ^4.0.0
   device_info_plus: ^9.0.0
+  battery_optimization_permission: ^1.1.0
 
 dev_dependencies:
   flutter_test:

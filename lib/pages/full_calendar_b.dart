@@ -243,6 +243,12 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
           teamLeave = _snapshotToLeaveMap(snap);
           loading = false;
         });
+        final monthLeaves = <String, List<String>>{};
+        teamLeave.forEach((dateKey, info) {
+          final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
+          monthLeaves[dateKey] = names;
+        });
+        WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
         _updateWidgetSnapshot();
       },
       onError: (e) => debugPrint('B Leaves listener error: $e'),
@@ -257,84 +263,77 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
   }
 
   Widget buildSummaryList() {
-      final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
-      final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-      final monthLeaves = teamLeave.entries
-          .where((entry) {
-            try {
-              final date = DateTime.parse(entry.key);
-              return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
-            } catch (_) {
-              return false;
-            }
-          })
-          .toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-      if (monthLeaves.isEmpty) {
-        return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
-      }
-      return ListView.builder(
-        itemCount: monthLeaves.length,
-        itemBuilder: (context, index) {
-          final entry = monthLeaves[index];
-          final info = entry.value;
-          final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
-
-          // 🌟 實打實直接對接你底層第 174 行的 nicknames，絕不報錯
-          final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
-
-          final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
-          final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
-          final Map<String, Map<String, dynamic>> merged = {};
-          for (int i = 0; i < names.length; i++) {
-            final name = names[i];
-
-            // 🌟 救火核心：如果這個手足有入暱稱，就顯示暱稱；如果沒有填，就用返全名
-            String displayName = name;
-            if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
-              displayName = nicknames[i].trim();
-            }
-
-            String reason = i < reasons.length ? reasons[i].trim() : '';
-            if (reason.isEmpty) continue;
-            final status = i < statuses.length ? statuses[i] : 'pending';
-            final parts = reason.split('-');
-            final firstType = parts.first;
-            final allSame = parts.every((p) => p == firstType);
-            final count = parts.length;
-
-            // 這裡的 Key 改用全新篩選出來的 displayName 綁定
-            final key = '$displayName|$firstType|$status';
-            if (allSame && count > 1) {
-              merged[key] = {'name': displayName, 'type': firstType, 'days': count, 'status': status};
-            } else {
-              merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
-            }
+    final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
+    final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
+    final monthLeaves = teamLeave.entries
+        .where((entry) {
+          try {
+            final date = DateTime.parse(entry.key);
+            return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
+          } catch (_) {
+            return false;
           }
-          final pairs = merged.values.map((m) {
-            final days = m['days'] as int;
-            final type = m['type'] as String;
-            final name = m['name'] as String;
-            final status = m['status'] as String;
-            final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
-            if (days > 1) {
-              return '$name ($type x$days)$statusIcon';
-            } else {
-              return '$name ($type)$statusIcon';
-            }
-          }).toList();
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(
-              '${entry.key}: ${pairs.join(', ')}',
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12),
-            ),
-          );
-        },
-      );
+        })
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    if (monthLeaves.isEmpty) {
+      return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
     }
+    return ListView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: monthLeaves.length,
+      itemBuilder: (context, index) {
+        final entry = monthLeaves[index];
+        final info = entry.value;
+        final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
+        final Map<String, Map<String, dynamic>> merged = {};
+        for (int i = 0; i < names.length; i++) {
+          final name = names[i];
+          String displayName = name;
+          if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
+            displayName = nicknames[i].trim();
+          }
+          String reason = i < reasons.length ? reasons[i].trim() : '';
+          if (reason.isEmpty) continue;
+          final status = i < statuses.length ? statuses[i] : 'pending';
+          final parts = reason.split('-');
+          final firstType = parts.first;
+          final allSame = parts.every((p) => p == firstType);
+          final count = parts.length;
+          final key = '$displayName|$firstType|$status';
+          if (allSame && count > 1) {
+            merged[key] = {'name': displayName, 'type': firstType, 'days': count, 'status': status};
+          } else {
+            merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
+          }
+        }
+        final pairs = merged.values.map((m) {
+          final days = m['days'] as int;
+          final type = m['type'] as String;
+          final name = m['name'] as String;
+          final status = m['status'] as String;
+          final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
+          if (days > 1) {
+            return '$name ($type x$days)$statusIcon';
+          } else {
+            return '$name ($type)$statusIcon';
+          }
+        }).toList();
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Text(
+            '${entry.key}: ${pairs.join(', ')}',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
     if (myName.trim().isEmpty) {
@@ -591,6 +590,7 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
     final DateTime calendarStartDate = firstDayOfMonth.subtract(Duration(days: daysBefore));
     final DateTime calendarEndDate = lastDayOfMonth.add(Duration(days: daysAfter));
     final int totalTiles = calendarEndDate.difference(calendarStartDate).inDays + 1;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('B Team', style: TextStyle(color: Colors.white)),
@@ -598,141 +598,152 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
       ),
-      body: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+      body: InteractiveViewer(
+        minScale: 0.5,
+        maxScale: 4.0,
+        constrained: false,
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 1.2,
+          height: 3000,
+          child: Column(
             children: [
-              IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
-              Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            color: Colors.grey.shade200,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: '日一二三四五六'.split('').map((d) => Expanded(
-                child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
-              )).toList(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            flex: 4,
-            child: GridView.builder(
-              padding: const EdgeInsets.all(4),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7,
-                childAspectRatio: 0.9,
-                crossAxisSpacing: 2,
-                mainAxisSpacing: 2,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
+                  Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
+                ],
               ),
-              itemCount: totalTiles,
-              itemBuilder: (context, index) {
-                final day = calendarStartDate.add(Duration(days: index));
-                final bool isNotCurrentMonth = day.month != currentMonth.month;
-                final dk = dateKey(day);
-                final shift = shiftForDate(day);
-                final peopleCount = countPeopleForDate(dk);
-                final badgeColor = badgeColorForCount(peopleCount);
-                final today = DateTime.now();
-                final isPast = day.isBefore(DateTime(today.year, today.month, today.day));
-                final isPublicHoliday = publicHolidays.containsKey(dk);
-                final publicHolidayName = publicHolidays[dk]?['name'] ?? '';
-                final publicHolidayColorValue = publicHolidays[dk]?['color'];
-                final publicHolidayColor = publicHolidayColorValue != null ? Color(publicHolidayColorValue as int) : Colors.red.shade400;
-                final customHolidayData = customHolidays[dk];
-                final isCustomHoliday = customHolidayData != null;
-                final customLabel = customHolidayData?['name'] ?? '';
-                Color cellBg = shiftColor(shift);
-                if (isPast) cellBg = Colors.grey.shade200;
-                if (isPublicHoliday) cellBg = publicHolidayColor.withOpacity(0.2);
-                if (isCustomHoliday) {
-                  final colorValue = customHolidayData!['color'] as int?;
-                  cellBg = colorValue != null ? Color(colorValue).withOpacity(0.2) : Colors.orange.shade100;
-                }
-                if (isNotCurrentMonth) cellBg = cellBg.withOpacity(0.15);
-                final isToday = isSameDate(day, DateTime.now());
-                return Transform.scale(
-                  scale: isToday ? 1.2 : 1.0,
-                  alignment: Alignment.center,
-                  child: GestureDetector(
-                    onTap: () => openEditDialog(day),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: cellBg,
-                        border: Border.all(
-                          color: isToday ? Colors.grey.shade800 : (peopleCount > 0 ? badgeColor.withOpacity(0.5) : Colors.grey.shade400),
-                          width: isToday ? 2 : 1,
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      padding: const EdgeInsets.all(2),
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    day.day.toString(),
-                                    style: TextStyle(
-                                      fontSize: isToday ? 14 : 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade600 : Colors.black87),
-                                    ),
-                                  ),
-                                  if (isPublicHoliday) Tooltip(
-                                    message: publicHolidayName,
-                                    child: Text(' 🇭🇰', style: TextStyle(fontSize: 12, color: publicHolidayColor)),
-                                  ),
-                                ],
-                              ),
-                              Text(
-                                shift,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w600,
-                                  color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade500 : Colors.black54),
-                                ),
-                              ),
-                              if (customLabel.isNotEmpty && !isNotCurrentMonth)
-                                Text(
-                                  customLabel.length > 5 ? '${customLabel.substring(0, 5)}…' : customLabel,
-                                  style: const TextStyle(fontSize: 8, color: Colors.black, fontWeight: FontWeight.w600),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              const SizedBox(height: 2),
-                            ],
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                color: Colors.grey.shade200,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: '日一二三四五六'.split('').map((d) => Expanded(
+                    child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
+                  )).toList(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              GridView.builder(
+                padding: const EdgeInsets.all(4),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7,
+                  childAspectRatio: 0.9,
+                  crossAxisSpacing: 2,
+                  mainAxisSpacing: 2,
+                ),
+                physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
+                itemCount: totalTiles,
+                itemBuilder: (context, index) {
+                  final day = calendarStartDate.add(Duration(days: index));
+                  final bool isNotCurrentMonth = day.month != currentMonth.month;
+                  final dk = dateKey(day);
+                  final shift = shiftForDate(day);
+                  final peopleCount = countPeopleForDate(dk);
+                  final badgeColor = badgeColorForCount(peopleCount);
+                  final today = DateTime.now();
+                  final isPast = day.isBefore(DateTime(today.year, today.month, today.day));
+                  final isPublicHoliday = publicHolidays.containsKey(dk);
+                  final publicHolidayName = publicHolidays[dk]?['name'] ?? '';
+                  final publicHolidayColorValue = publicHolidays[dk]?['color'];
+                  final publicHolidayColor = publicHolidayColorValue != null ? Color(publicHolidayColorValue as int) : Colors.red.shade400;
+                  final customHolidayData = customHolidays[dk];
+                  final isCustomHoliday = customHolidayData != null;
+                  final customLabel = customHolidayData?['name'] ?? '';
+                  Color cellBg = shiftColor(shift);
+                  if (isPast) cellBg = Colors.grey.shade200;
+                  if (isPublicHoliday) cellBg = publicHolidayColor.withOpacity(0.2);
+                  if (isCustomHoliday) {
+                    final colorValue = customHolidayData!['color'] as int?;
+                    cellBg = colorValue != null ? Color(colorValue).withOpacity(0.2) : Colors.orange.shade100;
+                  }
+                  if (isNotCurrentMonth) cellBg = cellBg.withOpacity(0.15);
+                  final isToday = isSameDate(day, DateTime.now());
+                  return Transform.scale(
+                    scale: isToday ? 1.2 : 1.0,
+                    alignment: Alignment.center,
+                    child: GestureDetector(
+                      onTap: () => openEditDialog(day),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: cellBg,
+                          border: Border.all(
+                            color: isToday ? Colors.grey.shade800 : (peopleCount > 0 ? badgeColor.withOpacity(0.5) : Colors.grey.shade400),
+                            width: isToday ? 2 : 1,
                           ),
-                          if (peopleCount > 0 && !isNotCurrentMonth)
-                            Positioned(
-                              top: -1,
-                              right: -1,
-                              child: Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-                                child: Text(peopleCount.toString(), style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
-                              ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        padding: const EdgeInsets.all(2),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      day.day.toString(),
+                                      style: TextStyle(
+                                        fontSize: isToday ? 14 : 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade600 : Colors.black87),
+                                      ),
+                                    ),
+                                    if (isPublicHoliday) Tooltip(
+                                      message: publicHolidayName,
+                                      child: Text(' 🇭🇰', style: TextStyle(fontSize: 12, color: publicHolidayColor)),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  shift,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                    color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade500 : Colors.black54),
+                                  ),
+                                ),
+                                if (customLabel.isNotEmpty && !isNotCurrentMonth)
+                                  Text(
+                                    customLabel.length > 5 ? '${customLabel.substring(0, 5)}…' : customLabel,
+                                    style: const TextStyle(fontSize: 8, color: Colors.black, fontWeight: FontWeight.w600),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                const SizedBox(height: 2),
+                              ],
                             ),
-                        ],
+                            if (peopleCount > 0 && !isNotCurrentMonth)
+                              Positioned(
+                                top: -1,
+                                right: -1,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
+                                  child: Text(peopleCount.toString(), style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+              const Divider(height: 1, thickness: 0.5),
+              SizedBox(
+                height: 600,
+                child: buildSummaryList(),
+              ),
+            ],
           ),
-          const Divider(height: 1, thickness: 0.5),
-          Expanded(flex: 3, child: buildSummaryList()),
-        ],
+        ),
       ),
     );
   }

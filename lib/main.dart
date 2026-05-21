@@ -12,7 +12,6 @@ import 'pages/whatsapp_config_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 確保 Firebase 初始化失敗唔會令 App 死，用 try-catch 包住
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,

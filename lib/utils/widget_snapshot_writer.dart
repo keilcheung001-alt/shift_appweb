@@ -37,7 +37,6 @@ class WidgetSnapshotWriter {
       await prefs.setString('widget_${loginGroup}_data', jsonStr);
       debugPrint('[WidgetSnapshot] ✅ 已寫入 $loginGroup 隊快照, leaveCount=$leaveCount');
 
-      // 主动推送数据到 Android 原生
       await _channel.invokeMethod('updateWidgetData', {
         'team': loginGroup,
         'todayShift': todayShift,
@@ -60,6 +59,14 @@ class WidgetSnapshotWriter {
       final jsonStr = prefs.getString('${_prefix}$loginGroup');
       return jsonStr == null ? null : jsonDecode(jsonStr) as Map<String, dynamic>;
     } catch (e) { debugPrint('[WidgetSnapshot] ❌ 讀取快照錯誤: $e'); return null; }
+  }
+
+  // 🔥 新增：儲存一個月的請假數據（日期 -> 請假人名單）
+  static Future<void> saveFullMonthLeaves(String team, Map<String, List<String>> monthLeaves) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = jsonEncode(monthLeaves);
+    await prefs.setString('full_month_leaves_$team', jsonStr);
+    debugPrint('[WidgetSnapshot] 📅 已儲存 $team 隊一個月請假數據 (${monthLeaves.length} 天)');
   }
 
   static Future<void> writeAlarmSnapshot({required String staffId, required bool alarmEnabled, required int advanceMinutes, required String? nextAlarmTime}) async {

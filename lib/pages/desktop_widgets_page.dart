@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
-import 'package:cloud_firestore/cloud_firestore.dart'; // 💡 實打實加入 Firebase 庫
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/auth_util.dart';
 import '../utils/widget_snapshot_writer.dart';
 import '../constants/constants.dart';
 
-final MethodChannel alarmChannel = MethodChannel('com.example.shift_app/alarm');
+// 只在非網頁版時定義 MethodChannel，避免 web 編譯錯誤
+final MethodChannel alarmChannel = kIsWeb ? MethodChannel('') : MethodChannel('com.example.shift_app/alarm');
 
 class DesktopWidgetsPage extends StatefulWidget {
   const DesktopWidgetsPage({super.key});
@@ -29,7 +31,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   int _alarmAdvanceMinutes = 15;
   DateTime? _nextAlarmTime;
 
-  // 💡 5個班次的鬧鐘獨立開關狀態 (預設全部開著 true)
+  // 5個班次的鬧鐘獨立開關狀態 (預設全部開著 true)
   bool _alarmMEnabled = true;
   bool _alarmAEnabled = true;
   bool _alarmNEnabled = true;
@@ -57,6 +59,8 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   }
 
   Future<void> _loadAlarmSettings() async {
+    // 網頁版沒有鬧鐘功能，直接返回
+    if (kIsWeb) return;
     final prefs = await SharedPreferences.getInstance();
     final staffId = await AuthUtil.getStaffId();
     if (staffId.isEmpty) return;
@@ -71,7 +75,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       _alarmLMEnabled = prefs.getBool('alarm_enabled_LM_$staffId') ?? true;
       _alarmLNEnabled = prefs.getBool('alarm_enabled_LN_$staffId') ?? true;
     });
-    await _updateNextAlarmTime(); // 💡 確保改用 await
+    await _updateNextAlarmTime();
   }
 
   bool _isAlarmEnabledForShift(String shiftCode) {
@@ -85,13 +89,14 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     }
   }
 
-  // 💡 呢個就係實打實「對號碼、對隊伍」去網上檢查請假嘅核心
+  // 檢查請假並找出下一個鬧鐘時間（只在手機版有用）
   Future<DateTime?> _findNextAlarmTime() async {
+    // 網頁版沒有鬧鐘
+    if (kIsWeb) return null;
     final now = DateTime.now();
     final staffId = await AuthUtil.getStaffId();
     if (staffId.isEmpty) return null;
 
-    // 🎯 對隊伍：鎖定所屬隊伍的請假集合 (例如 a_team_leave)
     String leaveCollection = '${_selectedTeam.toLowerCase()}_team_leave';
 
     for (int offset = 0; offset < 30; offset++) {
@@ -99,10 +104,8 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       final shift = _getShiftForDate(date);
       if (shift.isEmpty) continue;
 
-      // 1. 檢查這個班次的本地手機開關有沒有被關掉
       if (!_isAlarmEnabledForShift(shift)) continue;
 
-      // 2. 🔍 對號碼：連上 Firebase 檢查這一天你有沒有請假
       final dateString = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
       try {
         final leaveDoc = await FirebaseFirestore.instance
@@ -112,12 +115,11 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
         if (leaveDoc.exists) {
           final Map<String, dynamic> attendees = leaveDoc.data() ?? {};
-          // 檢查有沒有你這個號碼，而且狀態是不是已核准 (approved)
           if (attendees.containsKey(staffId)) {
             final userLeaveStatus = attendees[staffId]['status'];
             if (userLeaveStatus == 'approved') {
               debugPrint('🔔 偵測到號碼 $staffId 於 $dateString 請假已核准，自動跳過此日鬧鐘！');
-              continue; // 🎯 真的有請假！直接跳過這一天，去看下一天！
+              continue;
             }
           }
         }
@@ -125,7 +127,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         debugPrint('檢查 Firebase 請假出錯: $e');
       }
 
-      // 3. 讀取 constants.dart 內部設定的開工小時
       final shiftHour = SHIFT_START_HOURS[shift];
       if (shiftHour == null || shiftHour == 0) continue;
 
@@ -140,11 +141,11 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   }
 
   Future<void> _updateNextAlarmTime() async {
-    if (!_alarmEnabled) {
+    if (kIsWeb || !_alarmEnabled) {
       setState(() => _nextAlarmTime = null);
       return;
     }
-    final alarmTime = await _findNextAlarmTime(); // 等待 Firebase 檢查完畢
+    final alarmTime = await _findNextAlarmTime();
     setState(() => _nextAlarmTime = alarmTime);
   }
 
@@ -168,7 +169,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
 
     await prefs.setString('widget_team', _selectedTeam);
 
-    if (staffId.isNotEmpty) {
+    if (staffId.isNotEmpty && !kIsWeb) {
       await prefs.setInt('alarm_advance_minutes_$staffId', _alarmAdvanceMinutes);
 
       await prefs.setBool('alarm_enabled_M_$staffId', _alarmMEnabled);
@@ -177,7 +178,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       await prefs.setBool('alarm_enabled_LM_$staffId', _alarmLMEnabled);
       await prefs.setBool('alarm_enabled_LN_$staffId', _alarmLNEnabled);
 
-      await _updateNextAlarmTime(); // 儲存前先確保算好最新的時間
+      await _updateNextAlarmTime();
 
       await WidgetSnapshotWriter.writeAlarmSnapshot(
         staffId: staffId,
@@ -188,7 +189,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     }
 
     await _refreshWidgetData();
-    await _scheduleAlarm();
+    if (!kIsWeb) await _scheduleAlarm();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -210,13 +211,13 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
       _alarmAdvanceMinutes = minutes;
     });
 
-    if (staffId.isNotEmpty) {
+    if (staffId.isNotEmpty && !kIsWeb) {
       await prefs.setInt('alarm_advance_minutes_$staffId', minutes);
     }
 
     await _updateNextAlarmTime();
 
-    if (_alarmEnabled) {
+    if (!kIsWeb && _alarmEnabled) {
       await _scheduleAlarm();
     }
 
@@ -230,8 +231,9 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   }
 
   Future<void> _scheduleAlarm() async {
+    if (kIsWeb) return;
     if (!_alarmEnabled) return;
-    final alarmTime = await _findNextAlarmTime(); // 確保拿到經過請假過濾的時間
+    final alarmTime = await _findNextAlarmTime();
     if (alarmTime == null) return;
 
     await alarmChannel.invokeMethod('scheduleAlarm', {
@@ -252,6 +254,12 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
   }
 
   Future<void> _sendTestNotification() async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🌐 網頁版不支援鬧鐘測試通知')),
+      );
+      return;
+    }
     await alarmChannel.invokeMethod('showAlarm', {'team': _selectedTeam});
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

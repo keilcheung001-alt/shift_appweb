@@ -243,6 +243,12 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
           teamLeave = _snapshotToLeaveMap(snap);
           loading = false;
         });
+        final monthLeaves = <String, List<String>>{};
+        teamLeave.forEach((dateKey, info) {
+          final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
+          monthLeaves[dateKey] = names;
+        });
+        WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
         _updateWidgetSnapshot();
       },
       onError: (e) => debugPrint('A Leaves listener error: $e'),
@@ -257,84 +263,77 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
   }
 
   Widget buildSummaryList() {
-      final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
-      final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-      final monthLeaves = teamLeave.entries
-          .where((entry) {
-            try {
-              final date = DateTime.parse(entry.key);
-              return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
-            } catch (_) {
-              return false;
-            }
-          })
-          .toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-      if (monthLeaves.isEmpty) {
-        return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
-      }
-      return ListView.builder(
-        itemCount: monthLeaves.length,
-        itemBuilder: (context, index) {
-          final entry = monthLeaves[index];
-          final info = entry.value;
-          final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
-
-          // 🌟 實打實直接對接你底層第 174 行的 nicknames，絕不報錯
-          final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
-
-          final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
-          final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
-          final Map<String, Map<String, dynamic>> merged = {};
-          for (int i = 0; i < names.length; i++) {
-            final name = names[i];
-
-            // 🌟 救火核心：如果這個手足有入暱稱，就顯示暱稱；如果沒有填，就用返全名
-            String displayName = name;
-            if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
-              displayName = nicknames[i].trim();
-            }
-
-            String reason = i < reasons.length ? reasons[i].trim() : '';
-            if (reason.isEmpty) continue;
-            final status = i < statuses.length ? statuses[i] : 'pending';
-            final parts = reason.split('-');
-            final firstType = parts.first;
-            final allSame = parts.every((p) => p == firstType);
-            final count = parts.length;
-
-            // 這裡的 Key 改用全新篩選出來的 displayName 綁定
-            final key = '$displayName|$firstType|$status';
-            if (allSame && count > 1) {
-              merged[key] = {'name': displayName, 'type': firstType, 'days': count, 'status': status};
-            } else {
-              merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
-            }
+    final monthStart = DateTime(currentMonth.year, currentMonth.month, 1);
+    final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
+    final monthLeaves = teamLeave.entries
+        .where((entry) {
+          try {
+            final date = DateTime.parse(entry.key);
+            return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
+          } catch (_) {
+            return false;
           }
-          final pairs = merged.values.map((m) {
-            final days = m['days'] as int;
-            final type = m['type'] as String;
-            final name = m['name'] as String;
-            final status = m['status'] as String;
-            final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
-            if (days > 1) {
-              return '$name ($type x$days)$statusIcon';
-            } else {
-              return '$name ($type)$statusIcon';
-            }
-          }).toList();
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(
-              '${entry.key}: ${pairs.join(', ')}',
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12),
-            ),
-          );
-        },
-      );
+        })
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    if (monthLeaves.isEmpty) {
+      return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
     }
+    return ListView.builder(
+      physics: const NeverScrollableScrollPhysics(), // 防止內部滾動衝突
+      itemCount: monthLeaves.length,
+      itemBuilder: (context, index) {
+        final entry = monthLeaves[index];
+        final info = entry.value;
+        final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
+        final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
+        final Map<String, Map<String, dynamic>> merged = {};
+        for (int i = 0; i < names.length; i++) {
+          final name = names[i];
+          String displayName = name;
+          if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
+            displayName = nicknames[i].trim();
+          }
+          String reason = i < reasons.length ? reasons[i].trim() : '';
+          if (reason.isEmpty) continue;
+          final status = i < statuses.length ? statuses[i] : 'pending';
+          final parts = reason.split('-');
+          final firstType = parts.first;
+          final allSame = parts.every((p) => p == firstType);
+          final count = parts.length;
+          final key = '$displayName|$firstType|$status';
+          if (allSame && count > 1) {
+            merged[key] = {'name': displayName, 'type': firstType, 'days': count, 'status': status};
+          } else {
+            merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
+          }
+        }
+        final pairs = merged.values.map((m) {
+          final days = m['days'] as int;
+          final type = m['type'] as String;
+          final name = m['name'] as String;
+          final status = m['status'] as String;
+          final statusIcon = status == 'approved' ? ' ✅' : ' ⏳';
+          if (days > 1) {
+            return '$name ($type x$days)$statusIcon';
+          } else {
+            return '$name ($type)$statusIcon';
+          }
+        }).toList();
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Text(
+            '${entry.key}: ${pairs.join(', ')}',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
     if (myName.trim().isEmpty) {
@@ -591,6 +590,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
     final DateTime calendarStartDate = firstDayOfMonth.subtract(Duration(days: daysBefore));
     final DateTime calendarEndDate = lastDayOfMonth.add(Duration(days: daysAfter));
     final int totalTiles = calendarEndDate.difference(calendarStartDate).inDays + 1;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('A Team', style: TextStyle(color: Colors.white)),
@@ -598,34 +598,36 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
       ),
-      body: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+      body: InteractiveViewer(
+        minScale: 0.5,
+        maxScale: 4.0,
+        constrained: false,
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 1.2,
+          height: 3000, // 足夠大，確保可以向下平移
+          child: Column(
             children: [
-              IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
-              Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            color: Colors.grey.shade200,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: '日一二三四五六'.split('').map((d) => Expanded(
-                child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
-              )).toList(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            flex: 4,
-            child: InteractiveViewer(
-              minScale: 1.0,
-              maxScale: 3.0,
-              child: GridView.builder(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => changeMonth(-1)),
+                  Text('${currentMonth.year}-${currentMonth.month}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => changeMonth(1)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                color: Colors.grey.shade200,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: '日一二三四五六'.split('').map((d) => Expanded(
+                    child: Text(d, style: TextStyle(fontWeight: FontWeight.bold, color: d == '日' || d == '六' ? Colors.red : Colors.black87), textAlign: TextAlign.center),
+                  )).toList(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              GridView.builder(
                 padding: const EdgeInsets.all(4),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 7,
@@ -633,6 +635,8 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
                   crossAxisSpacing: 2,
                   mainAxisSpacing: 2,
                 ),
+                physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
                 itemCount: totalTiles,
                 itemBuilder: (context, index) {
                   final day = calendarStartDate.add(Duration(days: index));
@@ -686,7 +690,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
                                     Text(
                                       day.day.toString(),
                                       style: TextStyle(
-                                        fontSize: isToday ? 14 : 12, // 淨係呢度將原本嘅 12 係今日時改成 14 放大
+                                        fontSize: isToday ? 14 : 12,
                                         fontWeight: FontWeight.bold,
                                         color: isNotCurrentMonth ? Colors.grey.shade400 : (isPast ? Colors.grey.shade600 : Colors.black87),
                                       ),
@@ -732,11 +736,14 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
                   );
                 },
               ),
-            ),
+              const Divider(height: 1, thickness: 0.5),
+              SizedBox(
+                height: 600,
+                child: buildSummaryList(),
+              ),
+            ],
           ),
-          const Divider(height: 1, thickness: 0.5),
-          Expanded(flex: 3, child: buildSummaryList()),
-        ],
+        ),
       ),
     );
   }

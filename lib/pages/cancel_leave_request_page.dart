@@ -37,6 +37,7 @@ class _CancelLeaveRequestPageState extends State<CancelLeaveRequestPage> {
   String _myTeam = 'A';
   String _myName = '';
   String _myNickname = '';
+  String _myStaffId = '';
   List<ApprovedLeaveItem> _approvedItems = [];
 
   @override
@@ -48,24 +49,26 @@ class _CancelLeaveRequestPageState extends State<CancelLeaveRequestPage> {
   Future<void> _initializePage() async {
     final team = await AuthUtil.getHomeGroup();
     final prefs = await SharedPreferences.getInstance();
-    final name = prefs.getString('SPK_MY_NAME') ?? '';
-    final nickname = prefs.getString('SPK_NICKNAME') ?? '';
+    final name = prefs.getString(SPK_MY_NAME) ?? '';
+    final nickname = prefs.getString(SPK_NICKNAME) ?? '';
+    final staffId = await AuthUtil.getStaffId();
     setState(() {
       _myTeam = team.isEmpty ? 'A' : team;
       _myName = name;
       _myNickname = nickname;
+      _myStaffId = staffId;
     });
     await _loadApprovedLeaves();
   }
 
   Future<void> _loadApprovedLeaves() async {
     setState(() => _loading = true);
-    final staffId = await AuthUtil.getStaffId();
-
     final collection = FIRESTORE_LEAVE_COLLECTIONS[_myTeam] ?? 'a_team_leave';
+
+    // 查詢所有狀態為 approved 或 partial 的文件（因為 partial 也可能包含你的已批核假期）
     final snapshot = await FirebaseFirestore.instance
         .collection(collection)
-        .where('status', isEqualTo: 'approved')
+        .where('status', whereIn: ['approved', 'partial'])
         .get();
 
     final List<ApprovedLeaveItem> items = [];
@@ -74,69 +77,64 @@ class _CancelLeaveRequestPageState extends State<CancelLeaveRequestPage> {
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
-      final dateStr = doc.id;
+      final dateKey = data['dateKey'] ?? doc.id;
 
       DateTime? docDate;
       try {
-        docDate = DateTime.parse(dateStr);
+        docDate = DateTime.parse(dateKey);
       } catch (e) {
         continue;
       }
 
-      // 🎯 限制只撈出今天或未來的假期
-      if (docDate.isAfter(today) || docDate.isAtSameMomentAs(today)) {
-        final attendees = data['attendees'] as Map<String, dynamic>? ?? {};
+      // 只顯示今天或未來的假期
+      if (docDate.isBefore(today)) continue;
 
-        // 1️⃣ 條件一：檢查外層 Key 有沒有你的 Staff ID 號碼
-        bool isMyLeaveById = attendees.containsKey(staffId);
+      // 讀取陣列資料
+      final List<dynamic> names = data['names'] ?? [];
+      final List<dynamic> reasons = data['reasons'] ?? [];
+      final List<dynamic> statuses = data['statuses'] ?? [];
+      final List<dynamic> nicknames = data['nicknames'] ?? [];
+      final List<dynamic> staffIds = data['staffIds'] ?? [];
 
-        // 2️⃣ 條件二：檢查外層 Key 有沒有你的名字或暱稱
-        bool isMyLeaveByName = attendees.containsKey(_myName) ||
-                               (_myNickname.isNotEmpty && attendees.containsKey(_myNickname));
+      // 搵出你的索引（根據 Staff ID 或姓名/暱稱）
+      int myIndex = -1;
 
-        // 3️⃣ 條件三：如果外層 Key 對不到，深入進去檢查每個人的內層 'name' 欄位
-        if (!isMyLeaveByName) {
-          attendees.forEach((key, value) {
-            if (value is Map && value.containsKey('name')) {
-              final currentName = value['name']?.toString() ?? '';
-              if (currentName == _myName || currentName == _myNickname) {
-                isMyLeaveByName = true;
-              }
-            }
-          });
-        }
-
-        // 🎯 師兄你看！【號碼中】或者【名中】，只要二選一中一個就立刻放行！
-        if (isMyLeaveById || isMyLeaveByName) {
-          String leaveReason = '';
-
-          // 聰明撈出請假原因（邊個中就撈邊個嘅 reason）
-          if (isMyLeaveById && attendees[staffId] is Map) {
-            leaveReason = attendees[staffId]['reason'] ?? '';
-          } else if (attendees[_myName] is Map) {
-            leaveReason = attendees[_myName]['reason'] ?? '';
-          } else if (_myNickname.isNotEmpty && attendees[_myNickname] is Map) {
-            leaveReason = attendees[_myNickname]['reason'] ?? '';
-          } else {
-            attendees.forEach((key, value) {
-              if (value is Map && (value['name'] == _myName || value['name'] == _myNickname)) {
-                leaveReason = value['reason'] ?? '';
-              }
-            });
-          }
-
-          items.add(ApprovedLeaveItem(
-            docId: doc.id,
-            dateKey: dateStr,
-            date: docDate,
-            team: _myTeam,
-            name: _myName,
-            reason: leaveReason,
-            index: items.length,
-          ));
-        }
+      // 優先使用 Staff ID 配對
+      if (_myStaffId.isNotEmpty) {
+        myIndex = staffIds.indexWhere((id) => id == _myStaffId);
       }
+
+      // 如果 Staff ID 配對唔到，再用姓名或暱稱
+      if (myIndex == -1) {
+        myIndex = names.indexWhere((name) {
+          if (name == _myName) return true;
+          final nick = nicknames.isNotEmpty && nicknames.length > names.indexOf(name) ? nicknames[names.indexOf(name)] : '';
+          return nick == _myName || nick == _myNickname;
+        });
+      }
+
+      if (myIndex == -1) continue;
+
+      // 檢查你的狀態是否為 approved（只有已批核的才能取消）
+      final myStatus = myIndex < statuses.length ? statuses[myIndex] : 'pending';
+      if (myStatus != 'approved') continue;
+
+      // 讀取你的請假原因
+      String myReason = myIndex < reasons.length ? reasons[myIndex] : '';
+
+      items.add(ApprovedLeaveItem(
+        docId: doc.id,
+        dateKey: dateKey,
+        date: docDate,
+        team: _myTeam,
+        name: _myName,
+        reason: myReason,
+        index: myIndex,
+      ));
     }
+
+    // 按日期排序（近到遠）
+    items.sort((a, b) => a.date.compareTo(b.date));
 
     setState(() {
       _approvedItems = items;
@@ -145,7 +143,6 @@ class _CancelLeaveRequestPageState extends State<CancelLeaveRequestPage> {
   }
 
   Future<void> _cancelItem(ApprovedLeaveItem item) async {
-    final staffId = await AuthUtil.getStaffId();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -171,9 +168,11 @@ class _CancelLeaveRequestPageState extends State<CancelLeaveRequestPage> {
       await FirebaseFirestore.instance.collection('pending_cancel_leaves').add({
         'dateKey': item.dateKey,
         'team': item.team,
-        'staffId': staffId,
-        'name': item.name,
+        'staffId': _myStaffId,
+        'name': _myName,
+        'nickname': _myNickname,
         'reason': item.reason,
+        'originalStatus': 'approved',
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'pending',
       });

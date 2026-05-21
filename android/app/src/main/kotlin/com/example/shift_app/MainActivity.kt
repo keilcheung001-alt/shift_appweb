@@ -3,13 +3,13 @@ package com.example.shift_app
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -21,18 +21,22 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState) }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); triggerAllWidgetsUpdate() }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        triggerAllWidgetsUpdate()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        // 注册 WidgetUpdaterPlugin
         flutterEngine.plugins.add(WidgetUpdaterPlugin())
 
         alarmReschedulerReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action == "RESCHEDULE_ALARM") {
                     val team = intent.getStringExtra("team") ?: "A"
-                    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).invokeMethod("rescheduleAlarm", mapOf("team" to team))
+                    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+                        .invokeMethod("rescheduleAlarm", mapOf("team" to team))
                 }
             }
         }
@@ -66,7 +70,10 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    override fun onDestroy() { super.onDestroy(); try { unregisterReceiver(alarmReschedulerReceiver) } catch(e: Exception) {} }
+    override fun onDestroy() {
+        super.onDestroy()
+        try { unregisterReceiver(alarmReschedulerReceiver) } catch(e: Exception) {}
+    }
 
     private fun scheduleAlarm(context: Context, team: String, triggerTime: Long) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -74,14 +81,12 @@ class MainActivity : FlutterActivity() {
             putExtra("team", team)
             putExtra("triggerTime", triggerTime)
         }
-        // 固定 requestCode (用 team 字母的 ASCII 碼)
         val requestCode = team.firstOrNull()?.code ?: 1001
         val pendingIntent = PendingIntent.getBroadcast(
             context, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val currentTime = System.currentTimeMillis()
-        // 拒絕過去或太接近（5秒內）的時間
         if (triggerTime <= currentTime + 5000) {
             android.util.Log.w("MainActivity", "🚨 拒絕排程無效時間: triggerTime=$triggerTime, currentTime=$currentTime")
             return
@@ -111,7 +116,13 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun triggerAllWidgetsUpdate() {
-        listOf(MyAppWidgetProviderA::class.java, MyAppWidgetProviderB::class.java, MyAppWidgetProviderC::class.java, MyAppWidgetProviderD::class.java).forEach { provider ->
+        val providers = listOf<Class<out AppWidgetProvider>>(
+            MyAppWidgetProviderA::class.java,
+            MyAppWidgetProviderB::class.java,
+            MyAppWidgetProviderC::class.java,
+            MyAppWidgetProviderD::class.java
+        )
+        providers.forEach { provider ->
             sendBroadcast(Intent(this, provider).apply { action = AppWidgetManager.ACTION_APPWIDGET_UPDATE })
         }
     }

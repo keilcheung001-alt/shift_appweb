@@ -2,14 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shift_app/constants/constants.dart';
 import 'package:shift_app/utils/auth_util.dart';
-import 'package:shift_app/pages/google_sheets_config_page.dart';
-import 'package:shift_app/pages/holidays_page.dart';
-
-// 🌐 引入 Flutter 官方基礎庫，用來精確判斷是否為 Web 環境
 import 'package:flutter/foundation.dart' show kIsWeb;
-
-// 📱 只有在非網頁版（Android 手機端）時才安全載入原生套件，防止 Web 編譯崩潰
-import 'package:device_info_plus/device_info_plus.dart';
+import 'package:battery_optimization_permission/battery_optimization_permission.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -23,12 +17,54 @@ class _SettingsPageState extends State<SettingsPage> {
   int criticalThreshold = 3;
   bool _loading = true;
   String? _permissionCode;
+  bool _isBatteryOptimizationIgnored = false;
 
   @override
   void initState() {
     super.initState();
     _loadThresholds();
     _loadPermissionCode();
+    _checkBatteryOptimization();
+  }
+
+  Future<void> _checkBatteryOptimization() async {
+    if (kIsWeb) return;
+    final isIgnored = await BatteryOptimizationPermission.isIgnoringBatteryOptimizations();
+    setState(() {
+      _isBatteryOptimizationIgnored = isIgnored;
+    });
+  }
+
+  Future<void> _requestBatteryOptimization() async {
+    if (kIsWeb) return;
+    // 彈出系統對話框請求用戶允許忽略電池優化
+    final isSuccess = await BatteryOptimizationPermission.requestIgnoreBatteryOptimizations();
+    if (isSuccess) {
+      setState(() {
+        _isBatteryOptimizationIgnored = true;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ 已成功加入電池白名單，鬧鐘將更準確')),
+        );
+      }
+    } else {
+      // 用戶可能拒絕或取消，可以手動引導至系統設定頁
+      final opened = await BatteryOptimizationPermission.openBatteryOptimizationSettings();
+      if (opened) {
+        // 用戶從設定頁返回後，重新檢查狀態
+        await _checkBatteryOptimization();
+        if (_isBatteryOptimizationIgnored) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ 設定完成，鬧鐘將正常運作')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('⚠️ 請手動將本應用程式設為「不優化」')),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _loadPermissionCode() async {
@@ -58,23 +94,17 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  // 🛠️ 安全引導至系統設定（完美避開 Web 崩潰陷阱）
+  // 保留舊的系統設定入口（可選）
   void _openAndroidSettings() {
     if (kIsWeb) {
-      // 🌐 網頁版環境：優雅提示，絕不觸發底層 crash
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('網頁版環境下無需設定 Android 系統權限')),
       );
       return;
     }
-
-    // 📱 只有真正運行在手機端，才安全執行 Android Intent 邏輯
+    // 打開應用程式詳細設定頁面（用戶可手動調整權限）
     try {
-      // 使用動態查找，徹底斷開 Web 編譯期對 android_intent_plus 的直接依賴
-      // 確保 dart2js 打包網頁時一路綠燈
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('正在打開 Android 系統設定…')),
-      );
+      BatteryOptimizationPermission.openApplicationSettings();
     } catch (e) {
       debugPrint('無法開啟系統設定: $e');
     }
@@ -93,7 +123,7 @@ class _SettingsPageState extends State<SettingsPage> {
           : ListView(
               padding: const EdgeInsets.symmetric(vertical: 12),
               children: [
-                // 1. 權限狀態卡片
+                // 權限狀態卡片
                 ListTile(
                   leading: const Icon(Icons.verified_user, color: Colors.indigo),
                   title: const Text('當前帳號權限層級'),
@@ -101,7 +131,70 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const Divider(),
 
-                // 2. 人數門檻值調整
+                // 鬧鐘可靠性設定（新增）
+                Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.alarm, color: Colors.deepOrange),
+                            SizedBox(width: 12),
+                            Text('鬧鐘可靠性設定', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          kIsWeb
+                              ? '網頁版無需設定'
+                              : '為確保「工作鬧鐘」在手機休眠或省電模式下也能準時響起，請將此應用加入「電池優化白名單」。',
+                          style: const TextStyle(fontSize: 13, color: Colors.black54),
+                        ),
+                        const SizedBox(height: 12),
+                        if (!kIsWeb)
+                          Row(
+                            children: [
+                              Icon(
+                                _isBatteryOptimizationIgnored ? Icons.check_circle : Icons.warning,
+                                color: _isBatteryOptimizationIgnored ? Colors.green : Colors.orange,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _isBatteryOptimizationIgnored
+                                      ? '已加入白名單，鬧鐘將正常運作 ✅'
+                                      : '尚未加入白名單，鬧鐘可能不準 ⚠️',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: _isBatteryOptimizationIgnored ? Colors.green : Colors.orange,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        const SizedBox(height: 12),
+                        if (!kIsWeb)
+                          ElevatedButton.icon(
+                            onPressed: _requestBatteryOptimization,
+                            icon: const Icon(Icons.battery_charging_full),
+                            label: const Text('🔋 一鍵修復鬧鐘（加入白名單）'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.deepOrange,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(double.infinity, 48),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(),
+
+                // 人數門檻值調整
                 ListTile(
                   leading: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
                   title: const Text('Warning 警告門檻 (人)'),
@@ -150,7 +243,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                 ),
-
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: ElevatedButton.icon(
@@ -165,13 +257,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const Divider(),
 
-                // 3. 系統權限（網頁版會自動判定，安全避險）
+                // 其他系統權限（進階）
                 ListTile(
                   leading: const Icon(Icons.settings_applications, color: Colors.grey),
-                  title: const Text('Android 應用程式系統設定'),
-                  subtitle: Text(kIsWeb ? '網頁環境（已自動停用）' : '前往開啟通知或背景權限'),
+                  title: const Text('其他應用程式系統設定'),
+                  subtitle: Text(kIsWeb ? '網頁環境（已自動停用）' : '前往手動調整權限、通知等'),
                   trailing: const Icon(Icons.chevron_right),
-                  enabled: !kIsWeb, // 網頁版自動變灰禁用，手機版正常運作
+                  enabled: !kIsWeb,
                   onTap: _openAndroidSettings,
                 ),
               ],
