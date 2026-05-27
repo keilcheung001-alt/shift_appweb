@@ -36,7 +36,7 @@ class WidgetSnapshotWriter {
     return leavers;
   }
 
-  // ✅ 核心函數：寫入 Widget 數據（舊版參數，兼容月曆呼叫）
+  // ✅ 核心函數：寫入 Widget 數據（已修正網頁版相容性）
   static Future<void> writeWidgetSnapshot({
     required String loginGroup,
     required String todayShift,
@@ -68,16 +68,22 @@ class WidgetSnapshotWriter {
       await prefs.setInt('last_sync_timestamp', DateTime.now().millisecondsSinceEpoch);
       debugPrint('[WidgetSnapshot] ✅ 已更新 last_sync_timestamp');
 
-      // 透過 MethodChannel 觸發 Android 端更新所有 Widget
-      await _channel.invokeMethod('updateWidgetData', {
-        'team': loginGroup,
-        'fullMonthJson': fullMonthJson,
-      });
-      debugPrint('[WidgetSnapshot] ✅ 已推送數據到 Android Widget ($loginGroup)');
+      // --- 修正區域：網頁版會在此跳過 Android 功能，不再導致崩潰 ---
+      if (!kIsWeb) {
+        // 透過 MethodChannel 觸發 Android 端更新所有 Widget
+        await _channel.invokeMethod('updateWidgetData', {
+          'team': loginGroup,
+          'fullMonthJson': fullMonthJson,
+        });
+        debugPrint('[WidgetSnapshot] ✅ 已推送數據到 Android Widget ($loginGroup)');
 
-      // 強制刷新所有 Widget
-      await _channel.invokeMethod('forceUpdateWidgets');
-      debugPrint('[WidgetSnapshot] ✅ 已觸發所有 Widget 強制刷新');
+        // 強制刷新所有 Widget
+        await _channel.invokeMethod('forceUpdateWidgets');
+        debugPrint('[WidgetSnapshot] ✅ 已觸發所有 Widget 強制刷新');
+      } else {
+        debugPrint('[WidgetSnapshot] 🌐 偵測到網頁環境，跳過 Android Widget 更新');
+      }
+      // ---------------------------------------------------------
 
     } catch (e) {
       debugPrint('[WidgetSnapshot] ❌ 寫入錯誤: $e');
