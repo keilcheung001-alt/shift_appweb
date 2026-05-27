@@ -4,7 +4,6 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class GoogleSheetsService {
-  // 此為四組 URL 的完整定義
   static const Map<String, String> _scriptUrls = {
     'A': 'https://script.google.com/macros/s/AKfycbygcFMluPzyScBZ-KjflhcHdXkzN02b-rwx7PSfpEI1ztRiIxh4XWe6uoit6tq6MZy3Vg/exec',
     'B': 'https://script.google.com/macros/s/AKfycbzBsnwF_XwUtwgUzQDSLu7AgLbHOe0PtgtbTPQm2uYSSSLRF7QtwAPvhnBj61oTlWCa/exec',
@@ -14,7 +13,6 @@ class GoogleSheetsService {
 
   static String? getScriptUrl(String team) => _scriptUrls[team.toUpperCase()];
 
-  // 上傳請假記錄的完整功能
   static Future<Map<String, dynamic>> uploadLeaveRecord({
     required String team,
     required String userName,
@@ -32,17 +30,18 @@ class GoogleSheetsService {
         return {'success': false, 'message': '找不到 $team 組的 Apps Script URL'};
       }
 
+      // ✅ 順序跟足 Google Sheets 表頭：日期、姓名、稱號、員工號碼、職位代碼、原因、天數、狀態、申報日期
       final Map<String, dynamic> postData = {
-        'action': 'addLeaveRecord',
-        'dateKey': dateKey,
-        'userName': userName,
-        'nickname': nickname,
-        'employeeId': employeeId,
-        'positionCode': positionCode,
-        'reason': reason,
-        'days': days,
-        'status': status,
-        'timestamp': DateTime.now().toIso8601String(),
+        'action': 'addLeaveRecord',   // 呢個唔會落 sheet
+        'dateKey': dateKey,            // 1. 日期
+        'userName': userName,          // 2. 姓名
+        'nickname': nickname,          // 3. 稱號
+        'employeeId': employeeId,      // 4. 員工號碼
+        'positionCode': positionCode,  // 5. 職位代碼
+        'reason': reason,              // 6. 原因
+        'days': days,                  // 7. 天數
+        'status': status,              // 8. 審批狀態
+        'timestamp': DateTime.now().toIso8601String(), // 9. 申報日期
       };
 
       debugPrint('[GoogleSheets] 開始上傳到 $team 隊: $postData');
@@ -69,7 +68,6 @@ class GoogleSheetsService {
     }
   }
 
-  // 測試連接功能
   static Future<Map<String, dynamic>> testConnection(String team) async {
     try {
       final url = getScriptUrl(team);
@@ -85,7 +83,6 @@ class GoogleSheetsService {
     }
   }
 
-  // 獲取配置狀態
   static Future<Map<String, Map<String, dynamic>>> getSheetsConfigStatus() async {
     final status = <String, Map<String, dynamic>>{};
     for (final team in ['A', 'B', 'C', 'D']) {

@@ -243,10 +243,21 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
           teamLeave = _snapshotToLeaveMap(snap);
           loading = false;
         });
+
+        // ✅ 修改：儲存請假資料時，優先使用 nicknames
         final monthLeaves = <String, List<String>>{};
         teamLeave.forEach((dateKey, info) {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
-          monthLeaves[dateKey] = names;
+          final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
+          final displayNames = <String>[];
+          for (int i = 0; i < names.length; i++) {
+            if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
+              displayNames.add(nicknames[i].trim());
+            } else {
+              displayNames.add(names[i]);
+            }
+          }
+          monthLeaves[dateKey] = displayNames;
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
         _updateWidgetSnapshot();
@@ -280,7 +291,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
       return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
     }
     return ListView.builder(
-      physics: const NeverScrollableScrollPhysics(), // 防止內部滾動衝突
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: monthLeaves.length,
       itemBuilder: (context, index) {
         final entry = monthLeaves[index];
@@ -604,7 +615,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         constrained: false,
         child: SizedBox(
           width: MediaQuery.of(context).size.width * 1.2,
-          height: 3000, // 足夠大，確保可以向下平移
+          height: 3000,
           child: Column(
             children: [
               Row(

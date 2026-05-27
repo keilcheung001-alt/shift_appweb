@@ -243,13 +243,25 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
           teamLeave = _snapshotToLeaveMap(snap);
           loading = false;
         });
+
+        // ✅ 修改：儲存請假資料時，優先使用 nicknames
         final monthLeaves = <String, List<String>>{};
         teamLeave.forEach((dateKey, info) {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
-          monthLeaves[dateKey] = names;
+          final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
+          final displayNames = <String>[];
+          for (int i = 0; i < names.length; i++) {
+            if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
+              displayNames.add(nicknames[i].trim());
+            } else {
+              displayNames.add(names[i]);
+            }
+          }
+          monthLeaves[dateKey] = displayNames;
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
         _updateWidgetSnapshot();
+
       },
       onError: (e) => debugPrint('D Leaves listener error: $e'),
     );

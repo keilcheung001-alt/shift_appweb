@@ -5,6 +5,8 @@ plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+    // 強制讀取 google-services.json，確保 Firebase 能識別你的 App
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -18,10 +20,8 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    tasks.withType<KotlinCompile>().configureEach {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
+    kotlinOptions {
+        jvmTarget = "17"
     }
 
     defaultConfig {
@@ -44,12 +44,10 @@ android {
     }
 }
 
-flutter {
-    source = "../.."
-}
-
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
-    // ✅ 必須係 2.1.4 或以上
     add("coreLibraryDesugaring", "com.android.tools:desugar_jdk_libs:2.1.4")
+    // 強制確保 Firebase 核心庫已載入
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-analytics")
 }

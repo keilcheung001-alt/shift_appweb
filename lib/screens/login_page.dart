@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart'; // 記得加呢個 import
 import 'package:shift_app/constants/constants.dart';
 
 class LoginPage extends StatefulWidget {
@@ -26,6 +27,15 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     _loadSettings();
+    _requestNotificationPermission(); // 自動請求權限
+  }
+
+  // 權限請求邏輯
+  Future<void> _requestNotificationPermission() async {
+    var status = await Permission.notification.status;
+    if (!status.isGranted) {
+      await Permission.notification.request();
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -64,7 +74,7 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString(SPK_JOB_TITLE, jobTitle);
     await prefs.setString(SPK_GROUP, homeGroup);
     await prefs.setString(SPK_LOGIN_GROUP, selectedGroup);
-    await prefs.setString(SPK_PERMISSION_CODE, roleCode); // 'SM' 或 'SR'
+    await prefs.setString(SPK_PERMISSION_CODE, roleCode);
     await prefs.setInt(SPK_LOGIN_TIMESTAMP, DateTime.now().millisecondsSinceEpoch);
 
     _showMessage('✅ 登入成功！');
@@ -226,7 +236,7 @@ class _LoginPageState extends State<LoginPage> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: () => _handleLogin('SM'), // 隊長 = 超級管理員
+                            onPressed: () => _handleLogin('SM'),
                             icon: const Icon(Icons.shield, color: Colors.white),
                             label: const Text('隊長登入', style: TextStyle(fontSize: 16)),
                             style: ElevatedButton.styleFrom(
@@ -241,7 +251,7 @@ class _LoginPageState extends State<LoginPage> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: () => _handleLogin('SR'), // SR = 可管理自己隊
+                            onPressed: () => _handleLogin('SR'),
                             icon: const Icon(Icons.people, color: Colors.white),
                             label: const Text('SR登入', style: TextStyle(fontSize: 16)),
                             style: ElevatedButton.styleFrom(

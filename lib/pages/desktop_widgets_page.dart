@@ -191,9 +191,22 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
     await _refreshWidgetData();
     if (!kIsWeb) await _scheduleAlarm();
 
+    // --- 加入確認顯示 ---
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ 設定已儲存')),
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('✅ 記錄已儲存', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          backgroundColor: Colors.green.shade700,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 3),
+        ),
       );
     }
   }
@@ -284,7 +297,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. 狀態卡片
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -300,8 +312,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // 2. 快照數據顯示
             if (_cachedData != null)
               Card(
                 child: Padding(
@@ -322,8 +332,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                 ),
               ),
             if (_cachedData != null) const SizedBox(height: 16),
-
-            // 3. 選擇隊伍
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -350,8 +358,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // 4. 工作鬧鐘設定
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -360,7 +366,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   children: [
                     const Text('⏰ 工作鬧鐘設定', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -426,7 +431,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     Row(
                       children: [
                         Expanded(
@@ -508,8 +512,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // 5. 手動更新按鈕
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -524,8 +526,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               ),
             ),
             const SizedBox(height: 8),
-
-            // 6. 保存設定按鈕
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -540,8 +540,6 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // 底部說明欄
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -555,7 +553,7 @@ class _DesktopWidgetsPageState extends State<DesktopWidgetsPage> {
                   const Text('ℹ️ 小工具説明', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text('• 桌面小工具會顯示今日及未來兩日班次', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
-                  Text('• 需要在手機桌面添加"Tempo Leave" Widget', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
+                  Text('• 需要在手機桌面添加\"Tempo Leave\" Widget', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
                   Text('• 長按手機桌面空白位置 > 加入 Widget', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
                   Text('• 鬧鐘會喺已啟用班次開始前提醒你', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
                   Text('• 如果關閉了某個班次的開關，系統會自動跳過不設鬧鐘', style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
