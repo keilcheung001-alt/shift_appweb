@@ -30,22 +30,34 @@ class GoogleSheetsService {
         return {'success': false, 'message': '找不到 $team 組的 Apps Script URL'};
       }
 
-      // ✅ 順序跟足 Google Sheets 表頭：日期、姓名、稱號、員工號碼、職位代碼、原因、天數、狀態、申報日期
+      // 1. 先從 Apps Script 獲取當天已有的記錄總數，用於計算下一個序號
+      final checkResponse = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'action': 'getNextIndex', 'dateKey': dateKey}),
+      );
+
+      final checkResult = jsonDecode(checkResponse.body);
+      final int nextIndex = checkResult['nextIndex'] ?? 1;
+
+      // 2. 依照要求：將「當天序號」作為第 1 個欄位，確保總共 10 個欄位
       final Map<String, dynamic> postData = {
-        'action': 'addLeaveRecord',   // 呢個唔會落 sheet
-        'dateKey': dateKey,            // 1. 日期
-        'userName': userName,          // 2. 姓名
-        'nickname': nickname,          // 3. 稱號
-        'employeeId': employeeId,      // 4. 員工號碼
-        'positionCode': positionCode,  // 5. 職位代碼
-        'reason': reason,              // 6. 原因
-        'days': days,                  // 7. 天數
-        'status': status,              // 8. 審批狀態
-        'timestamp': DateTime.now().toIso8601String(), // 9. 申報日期
+        'action': 'addLeaveRecord',
+        'applicationIndex': nextIndex, // 第 1 欄
+        'userName': userName,          // 第 2 欄
+        'nickname': nickname,          // 第 3 欄
+        'employeeId': employeeId,      // 第 4 欄
+        'positionCode': positionCode,  // 第 5 欄
+        'dateKey': dateKey,            // 第 6 欄
+        'reason': reason,              // 第 7 欄
+        'days': days,                  // 第 8 欄
+        'status': status,              // 第 9 欄
+        'timestamp': DateTime.now().toIso8601String(), // 第 10 欄
       };
 
-      debugPrint('[GoogleSheets] 開始上傳到 $team 隊: $postData');
+      debugPrint('[GoogleSheets] 上傳數據至 $team: $postData');
 
+      // 3. 正式發送數據到 Apps Script
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
@@ -88,14 +100,8 @@ class GoogleSheetsService {
     for (final team in ['A', 'B', 'C', 'D']) {
       status[team] = {
         'configured': getScriptUrl(team) != null,
-        'hasSheetId': true,
-        'hasApiKey': true,
-        'sheetId': '使用 Apps Script',
       };
     }
     return status;
   }
-
-  static Future<List<Map<String, dynamic>>> downloadTeamLeaveRecords(String team) async => [];
-  static Future<void> initializeApiKey() async {}
 }
