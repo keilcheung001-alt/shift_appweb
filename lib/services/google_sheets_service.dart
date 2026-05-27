@@ -4,11 +4,12 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class GoogleSheetsService {
+  // 呢度已經幫你改晒做 /exec，直接複製呢段代碼覆蓋你原本嗰個
   static const Map<String, String> _scriptUrls = {
-    'A': 'https://script.google.com/macros/s/AKfycbygcFMluPzyScBZ-KjflhcHdXkzN02b-rwx7PSfpEI1ztRiIxh4XWe6uoit6tq6MZy3Vg/exec',
-    'B': 'https://script.google.com/macros/s/AKfycbzBsnwF_XwUtwgUzQDSLu7AgLbHOe0PtgtbTPQm2uYSSSLRF7QtwAPvhnBj61oTlWCa/exec',
-    'C': 'https://script.google.com/macros/s/AKfycbxghqBmz9dlGAaj5mw1_xNm5IaeBr8eeww0bqFYFHKs15HwcXbhq6hZkTxTR6TiiokUig/exec',
-    'D': 'https://script.google.com/macros/s/AKfycbz_UljpGPFvkvboykcR5mBMOy-Pf7uo9hkTFfnstBi8kNKLZGdIgMS0DdEEKQcdEPzWxg/exec',
+    'A': 'https://script.google.com/macros/s/AKfycbwtqob60eGhFsYPudq0uC8KIHROM6hDqAUpmazNN0z0/exec',
+    'B': 'https://script.google.com/macros/s/AKfycbxByKt2MZkGbARGQ6N6g3SCe_9wipp8_ok99hlfrd9g/exec',
+    'C': 'https://script.google.com/macros/s/AKfycbx66qsTvL-9X2V0eV3jMRrmJBjx2F2Jv4CTjKbkyExh/exec',
+    'D': 'https://script.google.com/macros/s/AKfycbxByKt2MZkGbARGQ6N6g3SCe_9wipp8_ok99hlfrd9g/exec',
   };
 
   static String? getScriptUrl(String team) => _scriptUrls[team.toUpperCase()];

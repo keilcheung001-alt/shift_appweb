@@ -731,14 +731,22 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
                                 const SizedBox(height: 2),
                               ],
                             ),
-                            if (peopleCount > 0 && !isNotCurrentMonth)
+                            // 修改位置：把 && !isNotCurrentMonth 刪除，並加上顏色區分邏輯
+                            if (peopleCount > 0)
                               Positioned(
                                 top: -1,
                                 right: -1,
                                 child: Container(
                                   padding: const EdgeInsets.all(2),
-                                  decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-                                  child: Text(peopleCount.toString(), style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                                  decoration: BoxDecoration(
+                                    // 當月顯示原本顏色，下個月顯示灰色
+                                    color: isNotCurrentMonth ? Colors.grey : badgeColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    peopleCount.toString(),
+                                    style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
+                                  ),
                                 ),
                               ),
                           ],
