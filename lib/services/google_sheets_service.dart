@@ -2,17 +2,27 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../constants/constants.dart';
 
 class GoogleSheetsService {
-  // 呢度已經幫你改晒做 /exec，直接複製呢段代碼覆蓋你原本嗰個
-  static const Map<String, String> _scriptUrls = {
-    'A': 'https://script.google.com/macros/s/AKfycbwtqob60eGhFsYPudq0uC8KIHROM6hDqAUpmazNN0z0/exec',
-    'B': 'https://script.google.com/macros/s/AKfycbxByKt2MZkGbARGQ6N6g3SCe_9wipp8_ok99hlfrd9g/exec',
-    'C': 'https://script.google.com/macros/s/AKfycbx66qsTvL-9X2V0eV3jMRrmJBjx2F2Jv4CTjKbkyExh/exec',
-    'D': 'https://script.google.com/macros/s/AKfycbxByKt2MZkGbARGQ6N6g3SCe_9wipp8_ok99hlfrd9g/exec',
-  };
 
-  static String? getScriptUrl(String team) => _scriptUrls[team.toUpperCase()];
+  // 🔥 獲取某隊的實際使用 URL（優先使用者自訂，否則用預設）
+  static Future<String?> getEffectiveScriptUrl(String team) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'custom_script_url_${team.toUpperCase()}';
+    final customUrl = prefs.getString(key);
+    if (customUrl != null && customUrl.isNotEmpty) {
+      return customUrl;
+    }
+    // 回退到 constants 的預設網址
+    return APPS_SCRIPT_URLS[team.toUpperCase()];
+  }
+
+  // 保留一個同步版本（不 async）供 UI 快速顯示設定狀態，但不保證最新
+  static String? getDefaultScriptUrl(String team) {
+    return APPS_SCRIPT_URLS[team.toUpperCase()];
+  }
 
   static Future<Map<String, dynamic>> uploadLeaveRecord({
     required String team,
@@ -26,12 +36,12 @@ class GoogleSheetsService {
     required String status,
   }) async {
     try {
-      final url = getScriptUrl(team);
+      final url = await getEffectiveScriptUrl(team);
       if (url == null) {
-        return {'success': false, 'message': '找不到 $team 組的 Apps Script URL'};
+        return {'success': false, 'message': '找不到 $team 組的 Apps Script URL (請檢查設定)'};
       }
 
-      // 1. 先從 Apps Script 獲取當天已有的記錄總數，用於計算下一個序號
+      // 1. 獲取下一個序號
       final checkResponse = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
@@ -41,24 +51,22 @@ class GoogleSheetsService {
       final checkResult = jsonDecode(checkResponse.body);
       final int nextIndex = checkResult['nextIndex'] ?? 1;
 
-      // 2. 依照要求：將「當天序號」作為第 1 個欄位，確保總共 10 個欄位
       final Map<String, dynamic> postData = {
         'action': 'addLeaveRecord',
-        'applicationIndex': nextIndex, // 第 1 欄
-        'userName': userName,          // 第 2 欄
-        'nickname': nickname,          // 第 3 欄
-        'employeeId': employeeId,      // 第 4 欄
-        'positionCode': positionCode,  // 第 5 欄
-        'dateKey': dateKey,            // 第 6 欄
-        'reason': reason,              // 第 7 欄
-        'days': days,                  // 第 8 欄
-        'status': status,              // 第 9 欄
-        'timestamp': DateTime.now().toIso8601String(), // 第 10 欄
+        'applicationIndex': nextIndex,
+        'userName': userName,
+        'nickname': nickname,
+        'employeeId': employeeId,
+        'positionCode': positionCode,
+        'dateKey': dateKey,
+        'reason': reason,
+        'days': days,
+        'status': status,
+        'timestamp': DateTime.now().toIso8601String(),
       };
 
-      debugPrint('[GoogleSheets] 上傳數據至 $team: $postData');
+      debugPrint('[GoogleSheets] 上傳數據至 $team ($url): $postData');
 
-      // 3. 正式發送數據到 Apps Script
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
@@ -83,26 +91,49 @@ class GoogleSheetsService {
 
   static Future<Map<String, dynamic>> testConnection(String team) async {
     try {
-      final url = getScriptUrl(team);
+      final url = await getEffectiveScriptUrl(team);
       if (url == null) return {'success': false, 'message': '找不到 URL'};
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'action': 'test'}),
       );
-      return {'success': response.statusCode == 200};
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return {'success': body['success'] == true, 'message': body['message'] ?? 'OK'};
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }
   }
 
+  // 取得所有隊伍的設定狀態（包含自訂 URL 與預設）
   static Future<Map<String, Map<String, dynamic>>> getSheetsConfigStatus() async {
     final status = <String, Map<String, dynamic>>{};
+    final prefs = await SharedPreferences.getInstance();
     for (final team in ['A', 'B', 'C', 'D']) {
+      final customKey = 'custom_script_url_$team';
+      final customUrl = prefs.getString(customKey);
+      final defaultUrl = APPS_SCRIPT_URLS[team];
       status[team] = {
-        'configured': getScriptUrl(team) != null,
+        'configured': (customUrl != null && customUrl.isNotEmpty) || defaultUrl != null,
+        'customUrl': customUrl,
+        'defaultUrl': defaultUrl,
       };
     }
     return status;
+  }
+
+  // 儲存特定隊伍的自訂 URL
+  static Future<bool> saveCustomUrl(String team, String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'custom_script_url_${team.toUpperCase()}';
+    if (url.trim().isEmpty) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, url.trim());
+    }
+    return true;
   }
 }
