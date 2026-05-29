@@ -11,29 +11,29 @@ import '../widgets/leave_edit_dialog.dart';
 import '../services/google_sheets_service.dart';
 import '../utils/widget_snapshot_writer.dart';
 
-class FullCalendarBTeam extends StatefulWidget {
+class FullCalendarATeam extends StatefulWidget {
   final String staffId;
   final String teamCode;
   final bool canFullEdit;
   final bool isSuperAdmin;
 
-  const FullCalendarBTeam({
+  const FullCalendarATeam({
     super.key,
     required this.staffId,
-    this.teamCode = 'B',
+    this.teamCode = 'A',
     required this.canFullEdit,
     required this.isSuperAdmin,
   });
 
   @override
-  State<FullCalendarBTeam> createState() => _FullCalendarBTeamState();
+  State<FullCalendarATeam> createState() => _FullCalendarATeamState();
 }
 
-class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
-  static const String teamCode = 'B';
-  static const String bTeamSheetUrlFallback = APPS_SCRIPT_URL_B_TEAM;
+class _FullCalendarATeamState extends State<FullCalendarATeam> {
+  static const String teamCode = 'A';
+  static const String aTeamSheetUrlFallback = APPS_SCRIPT_URL_A_TEAM;
 
-  late String bTeamSheetUrl;
+  late String aTeamSheetUrl;
 
   DateTime currentMonth = DateTime.now();
   bool loading = true;
@@ -82,7 +82,7 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
       ]);
       await subscribeLeavesForVisibleRange();
     } catch (e) {
-      debugPrint('B initAll error: $e');
+      debugPrint('A initAll error: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -91,9 +91,9 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
   Future<void> loadAppScriptUrl() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      bTeamSheetUrl = prefs.getString('google_apps_script_url_B') ?? bTeamSheetUrlFallback;
+      aTeamSheetUrl = prefs.getString('google_apps_script_url_A') ?? aTeamSheetUrlFallback;
     } catch (e) {
-      bTeamSheetUrl = bTeamSheetUrlFallback;
+      aTeamSheetUrl = aTeamSheetUrlFallback;
     }
   }
 
@@ -109,7 +109,7 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading public holidays (B): $e');
+      debugPrint('Error loading public holidays (A): $e');
     }
   }
 
@@ -132,7 +132,7 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         customHolidays[k] = Map<String, dynamic>.from(v as Map);
       });
     } catch (e) {
-      debugPrint('B load custom holidays error: $e');
+      debugPrint('A load custom holidays error: $e');
     }
   }
 
@@ -217,7 +217,7 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
           'shift': data['shift'] ?? '',
         };
       } catch (e) {
-        debugPrint('解析單個文檔失敗 (B): $e');
+        debugPrint('解析單個文檔失敗 (A): $e');
       }
     }
     return leaves;
@@ -270,7 +270,7 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
       },
-      onError: (e) => debugPrint('B Leaves listener error: $e'),
+      onError: (e) => debugPrint('A Leaves listener error: $e'),
     );
   }
 
@@ -575,8 +575,8 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('B Team', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green.shade600,
+        title: const Text('A Team', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.blue.shade600,
         foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
       ),
