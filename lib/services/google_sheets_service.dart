@@ -7,7 +7,7 @@ import '../constants/constants.dart';
 
 class GoogleSheetsService {
 
-  // 🔥 獲取某隊的實際使用 URL（優先使用者自訂，否則用預設）
+  // 獲取某隊的實際使用 URL（優先使用者自訂，否則用預設）
   static Future<String?> getEffectiveScriptUrl(String team) async {
     final prefs = await SharedPreferences.getInstance();
     final key = 'custom_script_url_${team.toUpperCase()}';
@@ -15,31 +15,25 @@ class GoogleSheetsService {
     if (customUrl != null && customUrl.isNotEmpty) {
       return customUrl;
     }
-    // 回退到 constants 的預設網址
     return APPS_SCRIPT_URLS[team.toUpperCase()];
   }
 
-  // 保留一個同步版本（不 async）供 UI 快速顯示設定狀態，但不保證最新
   static String? getDefaultScriptUrl(String team) {
     return APPS_SCRIPT_URLS[team.toUpperCase()];
   }
 
+  // 新版本：接收一個 Map，包含所有請假資料
   static Future<Map<String, dynamic>> uploadLeaveRecord({
-    required String team,
-    required String userName,
-    required String nickname,
-    required String employeeId,
-    required String positionCode,
-    required String dateKey,
-    required String reason,
-    required int days,
-    required String status,
+    required Map<String, dynamic> firestoreData,
   }) async {
     try {
+      final team = firestoreData['team'] ?? 'A';
       final url = await getEffectiveScriptUrl(team);
       if (url == null) {
         return {'success': false, 'message': '找不到 $team 組的 Apps Script URL (請檢查設定)'};
       }
+
+      final dateKey = firestoreData['dateKey'] as String;
 
       // 1. 獲取下一個序號
       final checkResponse = await http.post(
@@ -51,17 +45,18 @@ class GoogleSheetsService {
       final checkResult = jsonDecode(checkResponse.body);
       final int nextIndex = checkResult['nextIndex'] ?? 1;
 
+      // 2. 組裝要上傳的資料（保留全部原有欄位）
       final Map<String, dynamic> postData = {
         'action': 'addLeaveRecord',
         'applicationIndex': nextIndex,
-        'userName': userName,
-        'nickname': nickname,
-        'employeeId': employeeId,
-        'positionCode': positionCode,
+        'userName': firestoreData['userName'] ?? '',
+        'nickname': firestoreData['nickname'] ?? '',
+        'employeeId': firestoreData['employeeId'] ?? '',
+        'positionCode': firestoreData['positionCode'] ?? '',
         'dateKey': dateKey,
-        'reason': reason,
-        'days': days,
-        'status': status,
+        'reason': firestoreData['reason'] ?? '',
+        'days': firestoreData['days'] ?? 1,
+        'status': firestoreData['status'] ?? 'pending',
         'timestamp': DateTime.now().toIso8601String(),
       };
 
@@ -108,7 +103,6 @@ class GoogleSheetsService {
     }
   }
 
-  // 取得所有隊伍的設定狀態（包含自訂 URL 與預設）
   static Future<Map<String, Map<String, dynamic>>> getSheetsConfigStatus() async {
     final status = <String, Map<String, dynamic>>{};
     final prefs = await SharedPreferences.getInstance();
@@ -125,7 +119,6 @@ class GoogleSheetsService {
     return status;
   }
 
-  // 儲存特定隊伍的自訂 URL
   static Future<bool> saveCustomUrl(String team, String url) async {
     final prefs = await SharedPreferences.getInstance();
     final key = 'custom_script_url_${team.toUpperCase()}';

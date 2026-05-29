@@ -237,14 +237,13 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         .where('dateKey', isLessThan: DateFormat('yyyy-MM-dd').format(range.endExclusive))
         .orderBy('dateKey');
     leaveSub = query.snapshots().listen(
-      (snap) {
+          (snap) {
         if (!mounted) return;
         setState(() {
           teamLeave = _snapshotToLeaveMap(snap);
           loading = false;
         });
 
-        // ✅ 修改：儲存請假資料時，優先使用 nicknames
         final monthLeaves = <String, List<String>>{};
         teamLeave.forEach((dateKey, info) {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
@@ -261,7 +260,6 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
         _updateWidgetSnapshot();
-
       },
       onError: (e) => debugPrint('B Leaves listener error: $e'),
     );
@@ -279,13 +277,13 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
     final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
     final monthLeaves = teamLeave.entries
         .where((entry) {
-          try {
-            final date = DateTime.parse(entry.key);
-            return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
-          } catch (_) {
-            return false;
-          }
-        })
+      try {
+        final date = DateTime.parse(entry.key);
+        return !date.isBefore(monthStart) && !date.isAfter(monthEnd);
+      } catch (_) {
+        return false;
+      }
+    })
         .toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     if (monthLeaves.isEmpty) {
@@ -445,18 +443,18 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
       final dateKeyStr = entry.key;
       final payload = entry.value;
       final List<String> newNames = (payload['names'] as List<dynamic>?)
-              ?.map((e) => e.toString().trim())
-              .where((n) => n.isNotEmpty)
-              .toList() ?? [];
+          ?.map((e) => e.toString().trim())
+          .where((n) => n.isNotEmpty)
+          .toList() ?? [];
       final List<String> newReasons = (payload['reasons'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ?? [];
+          ?.map((e) => e.toString())
+          .toList() ?? [];
       final List<String> newNicknames = (payload['nicknames'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ?? [];
+          ?.map((e) => e.toString())
+          .toList() ?? [];
       final List<int> newDays = (payload['days'] as List<dynamic>?)
-              ?.map((e) => e as int)
-              .toList() ?? [];
+          ?.map((e) => e as int)
+          .toList() ?? [];
       if (newNames.isEmpty) continue;
       final docRef = col.doc(dateKeyStr);
       await FirebaseFirestore.instance.runTransaction((transaction) async {
@@ -524,6 +522,8 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
           SetOptions(merge: true),
         );
       });
+
+      // 備份到 Google Sheets
       for (int i = 0; i < newNames.length; i++) {
         final person = newNames[i];
         if (person.isEmpty) continue;
@@ -531,15 +531,17 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         final int days = i < newDays.length ? newDays[i] : 1;
         final bool isSelf = person == myName;
         await GoogleSheetsService.uploadLeaveRecord(
-          team: widget.teamCode,
-          userName: person,
-          nickname: isSelf ? myNickname : '',
-          employeeId: isSelf ? myEmployeeId : '',
-          positionCode: isSelf ? myJobTitle : '',
-          dateKey: dateKeyStr,
-          reason: reason,
-          days: days,
-          status: 'pending',
+          firestoreData: {
+            'team': widget.teamCode,
+            'userName': person,
+            'nickname': isSelf ? myNickname : '',
+            'employeeId': isSelf ? myEmployeeId : '',
+            'positionCode': isSelf ? myJobTitle : '',
+            'dateKey': dateKeyStr,
+            'reason': reason,
+            'days': days,
+            'status': 'pending',
+          },
         );
       }
     }
@@ -731,7 +733,6 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
                                 const SizedBox(height: 2),
                               ],
                             ),
-                            // 修改位置：把 && !isNotCurrentMonth 刪除，並加上顏色區分邏輯
                             if (peopleCount > 0)
                               Positioned(
                                 top: -1,
@@ -739,7 +740,6 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
                                 child: Container(
                                   padding: const EdgeInsets.all(2),
                                   decoration: BoxDecoration(
-                                    // 當月顯示原本顏色，下個月顯示灰色
                                     color: isNotCurrentMonth ? Colors.grey : badgeColor,
                                     shape: BoxShape.circle,
                                   ),
