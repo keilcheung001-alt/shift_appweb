@@ -115,11 +115,11 @@ const Map<String, List<String>> TEAM_CYCLES = {
   'D': ['LN', 'LN', '', '', 'M', 'M', 'A', '', '', 'N', 'N', '', '', 'M', 'LM', 'LM', 'A', 'A', 'N', 'N', '', '', '', 'M', 'M', 'A', 'A', 'N'],
 };
 
-// Apps Script URLs
-const String APPS_SCRIPT_URL_A_TEAM = 'https://script.google.com/macros/s/AKfycbygcFMluPzyScBZ-KjflhcHdXkzN02b-rwx7PSfpEI1ztRiIxh4XWe6uoit6tq6MZy3Vg/exec';
-const String APPS_SCRIPT_URL_B_TEAM = 'https://script.google.com/macros/s/AKfycbzBsnwF_XwUtwgUzQDSLu7AgLbHOe0PtgtbTPQm2uYSSSLRF7QtwAPvhnBj61oTlWCa/exec';
-const String APPS_SCRIPT_URL_C_TEAM = 'https://script.google.com/macros/s/AKfycbxghqBmz9dlGAaj5mw1_xNm5IaeBr8eeww0bqFYFHKs15HwcXbhq6hZkTxTR6TiiokUig/exec';
-const String APPS_SCRIPT_URL_D_TEAM = 'https://script.google.com/macros/s/AKfycbz_UljpGPFvkvboykcR5mBMOy-Pf7uo9hkTFfnstBi8kNKLZGdIgMS0DdEEKQcdEPzWxg/exec';
+// Apps Script URLs (已更新為新部署網址)
+const String APPS_SCRIPT_URL_A_TEAM = 'https://script.google.com/macros/s/AKfycbw2GyPgz2003S1W4YrvtVSl3UQj6uV7n3SgMFMHmxdPSF_rJb3IAoRd6Y6M9_aNtGGb/exec';
+const String APPS_SCRIPT_URL_B_TEAM = 'https://script.google.com/macros/s/AKfycbzPE2EXDTDDmU5yYjEcBi0-rKZHHfSIvvXBX2_Rc8g6CVAamOuvI-5DTMIMQxh8XMB4mg/exec';
+const String APPS_SCRIPT_URL_C_TEAM = 'https://script.google.com/macros/s/AKfycbxADmKqQJtBmmEmZUMtBD9gqvrkexIRIfvGZRymfR3ZhAr4DxiqmepqT29uXzltVs_x8g/exec';
+const String APPS_SCRIPT_URL_D_TEAM = 'https://script.google.com/macros/s/AKfycbwfxxPHyUFRaAQS-F4sCrCGGdb9cp_BxM0-WdPz_YzX2Y4oH9kXrS4ACKlky2pnLuWqgw/exec';
 
 const Map<String, String> APPS_SCRIPT_URLS = {
   'A': APPS_SCRIPT_URL_A_TEAM,
