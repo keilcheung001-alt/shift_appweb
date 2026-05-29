@@ -11,29 +11,29 @@ import '../widgets/leave_edit_dialog.dart';
 import '../services/google_sheets_service.dart';
 import '../utils/widget_snapshot_writer.dart';
 
-class FullCalendarATeam extends StatefulWidget {
+class FullCalendarBTeam extends StatefulWidget {
   final String staffId;
   final String teamCode;
   final bool canFullEdit;
   final bool isSuperAdmin;
 
-  const FullCalendarATeam({
+  const FullCalendarBTeam({
     super.key,
     required this.staffId,
-    this.teamCode = 'A',
+    this.teamCode = 'B',
     required this.canFullEdit,
     required this.isSuperAdmin,
   });
 
   @override
-  State<FullCalendarATeam> createState() => _FullCalendarATeamState();
+  State<FullCalendarBTeam> createState() => _FullCalendarBTeamState();
 }
 
-class _FullCalendarATeamState extends State<FullCalendarATeam> {
-  static const String teamCode = 'A';
-  static const String aTeamSheetUrlFallback = APPS_SCRIPT_URL_A_TEAM;
+class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
+  static const String teamCode = 'B';
+  static const String bTeamSheetUrlFallback = APPS_SCRIPT_URL_B_TEAM;
 
-  late String aTeamSheetUrl;
+  late String bTeamSheetUrl;
 
   DateTime currentMonth = DateTime.now();
   bool loading = true;
@@ -82,7 +82,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
       ]);
       await subscribeLeavesForVisibleRange();
     } catch (e) {
-      debugPrint('A initAll error: $e');
+      debugPrint('B initAll error: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -91,9 +91,9 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
   Future<void> loadAppScriptUrl() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      aTeamSheetUrl = prefs.getString('google_apps_script_url_A') ?? aTeamSheetUrlFallback;
+      bTeamSheetUrl = prefs.getString('google_apps_script_url_B') ?? bTeamSheetUrlFallback;
     } catch (e) {
-      aTeamSheetUrl = aTeamSheetUrlFallback;
+      bTeamSheetUrl = bTeamSheetUrlFallback;
     }
   }
 
@@ -109,7 +109,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading public holidays (A): $e');
+      debugPrint('Error loading public holidays (B): $e');
     }
   }
 
@@ -132,7 +132,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         customHolidays[k] = Map<String, dynamic>.from(v as Map);
       });
     } catch (e) {
-      debugPrint('A load custom holidays error: $e');
+      debugPrint('B load custom holidays error: $e');
     }
   }
 
@@ -217,7 +217,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
           'shift': data['shift'] ?? '',
         };
       } catch (e) {
-        debugPrint('解析單個文檔失敗 (A): $e');
+        debugPrint('解析單個文檔失敗 (B): $e');
       }
     }
     return leaves;
@@ -248,20 +248,29 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         teamLeave.forEach((dateKey, info) {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
           final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
-          final displayNames = <String>[];
+          final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
+          final formatted = <String>[];
           for (int i = 0; i < names.length; i++) {
+            String displayName = names[i];
             if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
-              displayNames.add(nicknames[i].trim());
+              displayName = nicknames[i].trim();
+            }
+            String leaveType = '';
+            if (i < reasons.length && reasons[i].trim().isNotEmpty) {
+              final parts = reasons[i].split('-');
+              leaveType = parts.first;
+            }
+            if (leaveType.isNotEmpty) {
+              formatted.add('$displayName($leaveType)');
             } else {
-              displayNames.add(names[i]);
+              formatted.add(displayName);
             }
           }
-          monthLeaves[dateKey] = displayNames;
+          monthLeaves[dateKey] = formatted;
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
-        _updateWidgetSnapshot();
       },
-      onError: (e) => debugPrint('A Leaves listener error: $e'),
+      onError: (e) => debugPrint('B Leaves listener error: $e'),
     );
   }
 
@@ -523,7 +532,6 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         );
       });
 
-      // 備份到 Google Sheets
       for (int i = 0; i < newNames.length; i++) {
         final person = newNames[i];
         if (person.isEmpty) continue;
@@ -546,49 +554,9 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
       }
     }
     await subscribeLeavesForVisibleRange();
-    await _updateWidgetSnapshot();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已儲存 ${result.planByDate.length} 天'), backgroundColor: Colors.green),
-    );
-  }
-
-  Future<void> _updateWidgetSnapshot() async {
-    final today = DateTime.now();
-    final todayKey = dateKey(today);
-    final todayLeave = teamLeave[todayKey];
-    final leaveCount = (todayLeave?['names'] as List?)?.length ?? 0;
-    final leavers = (todayLeave?['names'] as List?)?.cast<String>() ?? [];
-    String shift = '';
-    if (todayLeave != null && todayLeave.containsKey('shift')) {
-      shift = todayLeave['shift'] as String? ?? '';
-    }
-    if (shift.isEmpty) {
-      shift = shiftForDate(today);
-    }
-    final shiftDisplay = SHIFT_DISPLAY[shift] ?? shift;
-    final shiftHour = SHIFT_START_HOURS[shift];
-    final shiftTime = shiftHour != null ? '$shiftHour:00' : '';
-    final tomorrow = today.add(const Duration(days: 1));
-    final tomorrowKey = dateKey(tomorrow);
-    final tomorrowLeave = teamLeave[tomorrowKey];
-    String nextShift1 = '';
-    if (tomorrowLeave != null && tomorrowLeave.containsKey('shift')) {
-      nextShift1 = tomorrowLeave['shift'] as String? ?? '';
-    }
-    if (nextShift1.isEmpty) {
-      nextShift1 = shiftForDate(tomorrow);
-    }
-    final nextLeavers1 = (tomorrowLeave?['names'] as List?)?.cast<String>() ?? [];
-    await WidgetSnapshotWriter.writeWidgetSnapshot(
-      loginGroup: widget.teamCode,
-      todayShift: shift,
-      shiftName: shiftDisplay,
-      shiftTime: shiftTime,
-      leaveCount: leaveCount,
-      leavers: leavers,
-      nextShift1: nextShift1,
-      nextShiftLeavers1: nextLeavers1,
     );
   }
 
@@ -607,8 +575,8 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('A Team', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.blue.shade600,
+        title: const Text('B Team', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.green.shade600,
         foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: refresh)],
       ),

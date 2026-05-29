@@ -248,18 +248,27 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
         teamLeave.forEach((dateKey, info) {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
           final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
-          final displayNames = <String>[];
+          final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
+          final formatted = <String>[];
           for (int i = 0; i < names.length; i++) {
+            String displayName = names[i];
             if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
-              displayNames.add(nicknames[i].trim());
+              displayName = nicknames[i].trim();
+            }
+            String leaveType = '';
+            if (i < reasons.length && reasons[i].trim().isNotEmpty) {
+              final parts = reasons[i].split('-');
+              leaveType = parts.first;
+            }
+            if (leaveType.isNotEmpty) {
+              formatted.add('$displayName($leaveType)');
             } else {
-              displayNames.add(names[i]);
+              formatted.add(displayName);
             }
           }
-          monthLeaves[dateKey] = displayNames;
+          monthLeaves[dateKey] = formatted;
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
-        _updateWidgetSnapshot();
       },
       onError: (e) => debugPrint('C Leaves listener error: $e'),
     );
@@ -523,7 +532,6 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
         );
       });
 
-      // 備份到 Google Sheets
       for (int i = 0; i < newNames.length; i++) {
         final person = newNames[i];
         if (person.isEmpty) continue;
@@ -546,49 +554,9 @@ class _FullCalendarCTeamState extends State<FullCalendarCTeam> {
       }
     }
     await subscribeLeavesForVisibleRange();
-    await _updateWidgetSnapshot();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已儲存 ${result.planByDate.length} 天'), backgroundColor: Colors.green),
-    );
-  }
-
-  Future<void> _updateWidgetSnapshot() async {
-    final today = DateTime.now();
-    final todayKey = dateKey(today);
-    final todayLeave = teamLeave[todayKey];
-    final leaveCount = (todayLeave?['names'] as List?)?.length ?? 0;
-    final leavers = (todayLeave?['names'] as List?)?.cast<String>() ?? [];
-    String shift = '';
-    if (todayLeave != null && todayLeave.containsKey('shift')) {
-      shift = todayLeave['shift'] as String? ?? '';
-    }
-    if (shift.isEmpty) {
-      shift = shiftForDate(today);
-    }
-    final shiftDisplay = SHIFT_DISPLAY[shift] ?? shift;
-    final shiftHour = SHIFT_START_HOURS[shift];
-    final shiftTime = shiftHour != null ? '$shiftHour:00' : '';
-    final tomorrow = today.add(const Duration(days: 1));
-    final tomorrowKey = dateKey(tomorrow);
-    final tomorrowLeave = teamLeave[tomorrowKey];
-    String nextShift1 = '';
-    if (tomorrowLeave != null && tomorrowLeave.containsKey('shift')) {
-      nextShift1 = tomorrowLeave['shift'] as String? ?? '';
-    }
-    if (nextShift1.isEmpty) {
-      nextShift1 = shiftForDate(tomorrow);
-    }
-    final nextLeavers1 = (tomorrowLeave?['names'] as List?)?.cast<String>() ?? [];
-    await WidgetSnapshotWriter.writeWidgetSnapshot(
-      loginGroup: widget.teamCode,
-      todayShift: shift,
-      shiftName: shiftDisplay,
-      shiftTime: shiftTime,
-      leaveCount: leaveCount,
-      leavers: leavers,
-      nextShift1: nextShift1,
-      nextShiftLeavers1: nextLeavers1,
     );
   }
 

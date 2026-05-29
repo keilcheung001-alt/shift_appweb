@@ -33,7 +33,6 @@ class SevenDayWidgetProviderA : AppWidgetProvider() {
 
         views.setTextViewText(R.id.tv_title, "${team}隊未來7日")
 
-        // 读取存储的整月请假数据（key: 日期, value: List<昵称或姓名>）
         val monthLeavesJson = prefs.getString("full_month_leaves_$team", null)
         val leaveMap = mutableMapOf<String, List<String>>()
         var dataLoaded = false
@@ -42,7 +41,6 @@ class SevenDayWidgetProviderA : AppWidgetProvider() {
             try {
                 dataLoaded = true
                 val json = JSONObject(monthLeavesJson)
-                // 预先把未来7天的请假数据读入，缺失的日期不放入 map
                 for (i in 0..6) {
                     val date = today.plusDays(i.toLong())
                     val dateKey = date.format(isoFormat)
@@ -52,27 +50,24 @@ class SevenDayWidgetProviderA : AppWidgetProvider() {
                         leaveMap[dateKey] = leavers
                         Log.d("SevenDayWidgetA", "$dateKey -> ${leavers.size}人请假")
                     } else {
-                        // 注意：这里不放入 map，表示该日无请假数据记录（不代表0人，可能数据缺失）
                         Log.d("SevenDayWidgetA", "$dateKey 无请假数据记录")
                     }
                 }
             } catch (e: Exception) {
-                Log.e("SevenDayWidgetA", "读取 full_month_leaves 失败", e)
+                Log.e("SevenDayWidgetA", "读取失败", e)
                 dataLoaded = false
             }
         } else {
             Log.e("SevenDayWidgetA", "full_month_leaves_A 为 null")
         }
 
-        // 如果整月数据未加载成功，尝试使用旧的 widget_data 作为后备（但不要混淆）
+        // 后备方案：使用旧数据（仅用于兼容）
         if (!dataLoaded) {
-            // 使用旧数据（仅用于兼容，尽量不用）
-            Log.w("SevenDayWidgetA", "使用旧数据后备方案，可能不准确")
+            Log.w("SevenDayWidgetA", "使用旧数据后备方案")
             val oldJson = prefs.getString("widget_${team}_data", null)
             if (oldJson != null) {
                 try {
                     val json = JSONObject(oldJson)
-                    // 旧数据只含今天和明天，后面几天就用空列表
                     val todayKey = today.format(isoFormat)
                     val tomorrowKey = today.plusDays(1).format(isoFormat)
                     val todayLeavers = json.optJSONArray("leavers")?.let { arr ->
@@ -83,7 +78,6 @@ class SevenDayWidgetProviderA : AppWidgetProvider() {
                     } ?: emptyList()
                     leaveMap[todayKey] = todayLeavers
                     leaveMap[tomorrowKey] = tomorrowLeavers
-                    // 其他日期不放入 map，后面会显示为数据缺失
                 } catch (e: Exception) {
                     Log.e("SevenDayWidgetA", "解析旧数据失败", e)
                 }
@@ -103,20 +97,36 @@ class SevenDayWidgetProviderA : AppWidgetProvider() {
             card.setTextViewText(R.id.tv_shift, ShiftEngine.getShiftDisplay(team, date))
             card.setTextViewText(R.id.tv_time, ShiftEngine.getShiftTime(team, date))
 
-            // 关键修正：区分“数据缺失”和“确实无人请假”
             if (leaveMap.containsKey(dateKey)) {
                 val leavers = leaveMap[dateKey] ?: emptyList()
                 if (leavers.isNotEmpty()) {
                     card.setTextViewText(R.id.tv_leave, "🔴 請假：${leavers.size}人")
-                    card.setTextViewText(R.id.tv_leavers, leavers.joinToString("、"))
+                    // 将 "昵称(类型)" 转换为带图标的文本
+                    val displayList = leavers.map { leaver ->
+                        val pattern = Regex("(.*?)\\((.*?)\\)")
+                        val match = pattern.find(leaver)
+                        if (match != null) {
+                            val name = match.groupValues[1]
+                            val type = match.groupValues[2]
+                            val icon = when (type) {
+                                "AL" -> "📅"
+                                "CL" -> "🏢"
+                                "SL" -> "🤒"
+                                "TR" -> "📚"
+                                else -> "📌"
+                            }
+                            "$icon $name"
+                        } else {
+                            leaver
+                        }
+                    }.joinToString("  ")
+                    card.setTextViewText(R.id.tv_leavers, displayList)
                 } else {
                     card.setTextViewText(R.id.tv_leave, "✅ 請假：0人")
                     card.setTextViewText(R.id.tv_leavers, "")
                 }
             } else {
-                // 数据缺失（没有这个日期的记录）
                 if (dataLoaded) {
-                    // 整月数据已加载但这一条缺失 → 表示确实无人请假？不，可能是该日未记录，但为了不显示假数字，我们显示未知
                     card.setTextViewText(R.id.tv_leave, "❓ 請假：無紀錄")
                     card.setTextViewText(R.id.tv_leavers, "暫無數據")
                 } else {

@@ -248,15 +248,25 @@ class _FullCalendarBTeamState extends State<FullCalendarBTeam> {
         teamLeave.forEach((dateKey, info) {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
           final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
-          final displayNames = <String>[];
+          final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
+          final formatted = <String>[];
           for (int i = 0; i < names.length; i++) {
+            String displayName = names[i];
             if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
-              displayNames.add(nicknames[i].trim());
+              displayName = nicknames[i].trim();
+            }
+            String leaveType = '';
+            if (i < reasons.length && reasons[i].trim().isNotEmpty) {
+              final parts = reasons[i].split('-');
+              leaveType = parts.first;
+            }
+            if (leaveType.isNotEmpty) {
+              formatted.add('$displayName($leaveType)');
             } else {
-              displayNames.add(names[i]);
+              formatted.add(displayName);
             }
           }
-          monthLeaves[dateKey] = displayNames;
+          monthLeaves[dateKey] = formatted;
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
         _updateWidgetSnapshot();
