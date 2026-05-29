@@ -115,7 +115,7 @@ const Map<String, List<String>> TEAM_CYCLES = {
   'D': ['LN', 'LN', '', '', 'M', 'M', 'A', '', '', 'N', 'N', '', '', 'M', 'LM', 'LM', 'A', 'A', 'N', 'N', '', '', '', 'M', 'M', 'A', 'A', 'N'],
 };
 
-// Apps Script URLs (已更新為新部署網址)
+// Apps Script URLs (已更新為新部署網址，經測試可正常存取)
 const String APPS_SCRIPT_URL_A_TEAM = 'https://script.google.com/macros/s/AKfycbw2GyPgz2003S1W4YrvtVSl3UQj6uV7n3SgMFMHmxdPSF_rJb3IAoRd6Y6M9_aNtGGb/exec';
 const String APPS_SCRIPT_URL_B_TEAM = 'https://script.google.com/macros/s/AKfycbzPE2EXDTDDmU5yYjEcBi0-rKZHHfSIvvXBX2_Rc8g6CVAamOuvI-5DTMIMQxh8XMB4mg/exec';
 const String APPS_SCRIPT_URL_C_TEAM = 'https://script.google.com/macros/s/AKfycbxADmKqQJtBmmEmZUMtBD9gqvrkexIRIfvGZRymfR3ZhAr4DxiqmepqT29uXzltVs_x8g/exec';
