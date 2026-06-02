@@ -8,5 +8,5 @@
     android:initialLayout="@layout/widget_seven_day"
     android:resizeMode="vertical"
     android:widgetCategory="home_screen"
-    android:label="📅七日班表"
+    android:label="📅5日班表"
     android:previewImage="@drawable/widget_preview_c2" />

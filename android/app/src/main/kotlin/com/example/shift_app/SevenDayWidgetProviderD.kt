@@ -2,7 +2,9 @@ package com.example.shift_app
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.widget.RemoteViews
 import android.util.Log
 import org.json.JSONObject
@@ -10,6 +12,18 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 class SevenDayWidgetProviderD : AppWidgetProvider() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == "android.intent.action.DATE_CHANGED" ||
+            intent.action == "android.intent.action.TIME_SET") {
+            val mgr = AppWidgetManager.getInstance(context)
+            val cn = ComponentName(context, SevenDayWidgetProviderD::class.java)
+            val ids = mgr.getAppWidgetIds(cn)
+            onUpdate(context, mgr, ids)
+        }
+    }
+
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
@@ -31,7 +45,7 @@ class SevenDayWidgetProviderD : AppWidgetProvider() {
             "Fri" to "週五", "Sat" to "週六", "Sun" to "週日"
         )
 
-        views.setTextViewText(R.id.tv_title, "${team}隊未來7日")
+        views.setTextViewText(R.id.tv_title, "${team}隊未來5日")
 
         val monthLeavesJson = prefs.getString("full_month_leaves_$team", null)
         val leaveMap = mutableMapOf<String, List<String>>()
@@ -41,7 +55,7 @@ class SevenDayWidgetProviderD : AppWidgetProvider() {
             try {
                 dataLoaded = true
                 val json = JSONObject(monthLeavesJson)
-                for (i in 0..6) {
+                for (i in 0..4) {
                     val date = today.plusDays(i.toLong())
                     val dateKey = date.format(isoFormat)
                     val arr = json.optJSONArray(dateKey)
@@ -61,7 +75,6 @@ class SevenDayWidgetProviderD : AppWidgetProvider() {
             Log.e("SevenDayWidgetD", "full_month_leaves_D 为 null")
         }
 
-        // 后备方案：使用旧数据（仅用于兼容）
         if (!dataLoaded) {
             Log.w("SevenDayWidgetD", "使用旧数据后备方案")
             val oldJson = prefs.getString("widget_${team}_data", null)
@@ -86,13 +99,13 @@ class SevenDayWidgetProviderD : AppWidgetProvider() {
 
         views.removeAllViews(R.id.container)
 
-        for (i in 0..6) {
+        for (i in 0..4) {
             val date = today.plusDays(i.toLong())
             val dateKey = date.format(isoFormat)
             val card = RemoteViews(context.packageName, R.layout.widget_seven_day_card)
 
             val weekday = chineseWeekday[date.format(weekdayFormat)] ?: ""
-            val dateStr = if (i == 0) "🔥 今日 ${date.format(dateFormat)} $weekday" else "📅 ${date.format(dateFormat)} $weekday"
+            val dateStr = if (i == 0) "🔥 今日 🗓 ${date.format(dateFormat)} $weekday" else "🗓 ${date.format(dateFormat)} $weekday"
             card.setTextViewText(R.id.tv_date, dateStr)
             card.setTextViewText(R.id.tv_shift, ShiftEngine.getShiftDisplay(team, date))
             card.setTextViewText(R.id.tv_time, ShiftEngine.getShiftTime(team, date))
@@ -101,24 +114,37 @@ class SevenDayWidgetProviderD : AppWidgetProvider() {
                 val leavers = leaveMap[dateKey] ?: emptyList()
                 if (leavers.isNotEmpty()) {
                     card.setTextViewText(R.id.tv_leave, "🔴 請假：${leavers.size}人")
-                    // 将 "昵称(类型)" 转换为带图标的文本
                     val displayList = leavers.map { leaver ->
-                        val pattern = Regex("(.*?)\\((.*?)\\)")
-                        val match = pattern.find(leaver)
-                        if (match != null) {
-                            val name = match.groupValues[1]
-                            val type = match.groupValues[2]
+                        val patternWithNumber = Regex("(.*?)\\(([A-Z]+)(\\d+)\\)")
+                        val matchNumber = patternWithNumber.find(leaver)
+                        if (matchNumber != null) {
+                            val name = matchNumber.groupValues[1]
+                            val type = matchNumber.groupValues[2]
+                            val number = matchNumber.groupValues[3]
                             val icon = when (type) {
-                                "AL" -> "📅"
-                                "CL" -> "🏢"
-                                "SL" -> "🤒"
+                                "AL" -> "🆓️"
+                                "CL" -> "📅"
+                                "SL" -> "😷"
                                 "TR" -> "📚"
                                 else -> "📌"
                             }
-                            "$icon $name"
-                        } else {
-                            leaver
+                            return@map "$icon$number $name"
                         }
+                        val patternWithText = Regex("(.*?)\\(([A-Z]+).*?\\)")
+                        val matchText = patternWithText.find(leaver)
+                        if (matchText != null) {
+                            val name = matchText.groupValues[1]
+                            val type = matchText.groupValues[2]
+                            val icon = when (type) {
+                                "AL" -> "🆓️"
+                                "CL" -> "📅"
+                                "SL" -> "😷"
+                                "TR" -> "📚"
+                                else -> "📌"
+                            }
+                            return@map "$icon $name"
+                        }
+                        leaver
                     }.joinToString("  ")
                     card.setTextViewText(R.id.tv_leavers, displayList)
                 } else {

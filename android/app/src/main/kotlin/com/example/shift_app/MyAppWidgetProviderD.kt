@@ -2,7 +2,9 @@
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.widget.RemoteViews
 import android.util.Log
 import org.json.JSONObject
@@ -10,6 +12,18 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 class MyAppWidgetProviderD : AppWidgetProvider() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == "android.intent.action.DATE_CHANGED" ||
+            intent.action == "android.intent.action.TIME_SET") {
+            val mgr = AppWidgetManager.getInstance(context)
+            val cn = ComponentName(context, MyAppWidgetProviderD::class.java)
+            val ids = mgr.getAppWidgetIds(cn)
+            onUpdate(context, mgr, ids)
+        }
+    }
+
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
@@ -30,7 +44,6 @@ class MyAppWidgetProviderD : AppWidgetProvider() {
         var tomorrowLeavers = emptyList<String>()
         var isDataLoaded = false
 
-        // ✅ 優先從 full_month_leaves 讀取（入面已經係 nicknames）
         val monthLeavesJson = prefs.getString("full_month_leaves_$team", null)
 
         if (monthLeavesJson != null) {
@@ -44,12 +57,11 @@ class MyAppWidgetProviderD : AppWidgetProvider() {
                     (0 until arr.length()).map { arr.getString(it) }
                 } ?: emptyList()
             } catch(e: Exception) {
-                Log.e("WidgetC", "讀取 full_month_leaves 失敗", e)
+                Log.e("WidgetD", "讀取 full_month_leaves 失敗", e)
                 isDataLoaded = false
             }
         }
 
-        // ✅ 如果 full_month_leaves 冇資料，fallback 去 widget_data
         if (!isDataLoaded) {
             val jsonStr = prefs.getString("widget_${team}_data", null)
             if (jsonStr != null) {
@@ -63,13 +75,12 @@ class MyAppWidgetProviderD : AppWidgetProvider() {
                         (0 until arr.length()).map { arr.getString(it) }
                     } ?: emptyList()
                 } catch(e: Exception) {
-                    Log.e("WidgetC", "讀取 widget_data 失敗", e)
+                    Log.e("WidgetD", "讀取 widget_data 失敗", e)
                     isDataLoaded = false
                 }
             }
         }
 
-        // 班次直接用 ShiftEngine 計算
         val todayShift = ShiftEngine.getShiftDisplay(team, today)
         val tomorrowShift = ShiftEngine.getShiftDisplay(team, tomorrow)
 

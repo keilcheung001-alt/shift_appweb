@@ -53,37 +53,71 @@
             android:enabled="true"
             android:priority="1000" />
 
-        <receiver android:name="com.example.shift_app.MyAppWidgetProviderA" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <!-- MyAppWidgetProvider -->
+        <receiver android:name="com.example.shift_app.MyAppWidgetProviderA" android:exported="true" android:label="📅 A隊2日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/my_app_widget_info_a" />
         </receiver>
-        <receiver android:name="com.example.shift_app.MyAppWidgetProviderB" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <receiver android:name="com.example.shift_app.MyAppWidgetProviderB" android:exported="true" android:label="📅 B隊2日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/my_app_widget_info_b" />
         </receiver>
-        <receiver android:name="com.example.shift_app.MyAppWidgetProviderC" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <receiver android:name="com.example.shift_app.MyAppWidgetProviderC" android:exported="true" android:label="📅 C隊2日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/my_app_widget_info_c" />
         </receiver>
-        <receiver android:name="com.example.shift_app.MyAppWidgetProviderD" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <receiver android:name="com.example.shift_app.MyAppWidgetProviderD" android:exported="true" android:label="📅 D隊2日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/my_app_widget_info_d" />
         </receiver>
 
-        <receiver android:name=".SevenDayWidgetProviderA" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <!-- SevenDayWidgetProvider -->
+        <receiver android:name=".SevenDayWidgetProviderA" android:exported="true" android:label="📅 A隊5日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/seven_day_widget_info_a" />
         </receiver>
-        <receiver android:name=".SevenDayWidgetProviderB" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <receiver android:name=".SevenDayWidgetProviderB" android:exported="true" android:label="📅 B隊5日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/seven_day_widget_info_b" />
         </receiver>
-        <receiver android:name=".SevenDayWidgetProviderC" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <receiver android:name=".SevenDayWidgetProviderC" android:exported="true" android:label="📅 C隊5日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/seven_day_widget_info_c" />
         </receiver>
-        <receiver android:name=".SevenDayWidgetProviderD" android:exported="true">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+        <receiver android:name=".SevenDayWidgetProviderD" android:exported="true" android:label="📅 D隊5日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/seven_day_widget_info_d" />
         </receiver>
 

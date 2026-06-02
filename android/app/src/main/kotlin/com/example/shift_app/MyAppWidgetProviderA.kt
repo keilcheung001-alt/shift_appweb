@@ -2,7 +2,9 @@
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.widget.RemoteViews
 import android.util.Log
 import org.json.JSONObject
@@ -10,6 +12,18 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 class MyAppWidgetProviderA : AppWidgetProvider() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == "android.intent.action.DATE_CHANGED" ||
+            intent.action == "android.intent.action.TIME_SET") {
+            val mgr = AppWidgetManager.getInstance(context)
+            val cn = ComponentName(context, MyAppWidgetProviderA::class.java)
+            val ids = mgr.getAppWidgetIds(cn)
+            onUpdate(context, mgr, ids)
+        }
+    }
+
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
