@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // 引入網頁端事實判斷工具[cite: 17]
+import '../services/google_sheets_service.dart'; // 引入試算表服務
 
 class LeaveEditDialogResult {
   final bool isCancelled;
@@ -148,7 +150,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
   }
 
   Future<void> _onSave() async {
-    // 先做基本驗證：有名就要有原因
+    // 1. 基本驗證：有名就要有原因
     bool hasAnyRow = false;
     bool missingReason = false;
 
@@ -190,16 +192,12 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
 
       final type = typeSelected[i];
 
-      // 原因唔可以留空（已經喺上面驗證咗，但再保險一次）
       if (reason.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('請填寫原因，不可以留空')),
         );
         return;
       }
-
-      // 原因有內容，就直接用，唔加任何類型前綴
-      // （類型只係輔助快速輸入，唔會記錄）
 
       int used = 0;
       int offset = 0;
@@ -211,7 +209,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         final shift = shiftForDate(target);
         final bool isRestDay = shift.isEmpty;
 
-        // 只有年假 (AL) 先要避開休息日，其他假就算休息日都可以請
         if (type == 'AL' && isRestDay) {
           continue;
         }
@@ -222,7 +219,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         reasonsByDate.putIfAbsent(dk, () => <String>[]);
 
         namesByDate[dk]!.add(name);
-        // 只有當姓名等於登入者原名時才儲存別名
         final nickname = (name == widget.myName) ? widget.myNickname : '';
         nicknamesByDate[dk]!.add(nickname);
         reasonsByDate[dk]!.add(reason);
@@ -247,7 +243,73 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       };
     });
 
+    // -------------------------------------------------------------------------
+    // 【網頁端極速並行保底上傳通道】
+    // -------------------------------------------------------------------------
+    if (kIsWeb) {
+      // 顯示加載圈圈
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      try {
+        String detectedTeam = 'A'; // 預設值
+
+        // 收集所有需要提交的請求 Future，準備進行非同步並行發送
+        final List<Future<Map<String, dynamic>>> uploadFutures = [];
+
+        for (var entry in planByDate.entries) {
+          final dk = entry.key;
+          final names = entry.value['names'] as List<String>;
+          final nicknames = entry.value['nicknames'] as List<String>;
+          final reasons = entry.value['reasons'] as List<String>;
+
+          for (int idx = 0; idx < names.length; idx++) {
+            // 將每個發送請求加入列表，暫不 await
+            uploadFutures.add(
+              GoogleSheetsService.submitLeaveWithForcedFallback(
+                team: detectedTeam,
+                userName: names[idx],
+                nickname: nicknames[idx],
+                employeeId: '',
+                positionCode: '',
+                dateKey: dk,
+                reason: reasons[idx],
+                days: 1.0,
+                status: 'pending',
+              ),
+            );
+          }
+        }
+
+        // 使用 Future.wait 同時發射所有請求，大幅減少多天請假造成的延遲！
+        final List<Map<String, dynamic>> results = await Future.wait(uploadFutures);
+
+        if (!mounted) return;
+        Navigator.of(context).pop(); // 關閉進度條
+
+        // 檢查是否有任何一筆失敗
+        final bool anyFailure = results.any((res) => res['success'] != true);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(anyFailure ? '部分數據提交可能未完全成功，請重新整理確認。' : '網頁端數據已極速保底同步！'),
+            backgroundColor: anyFailure ? Colors.orange : Colors.green,
+          ),
+        );
+      } catch (webErr) {
+        if (!mounted) return;
+        Navigator.of(context).pop(); // 關閉進度條
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('網頁連線異常: $webErr'), backgroundColor: Colors.red),
+        );
+      }
+    }
+
     if (!mounted) return;
+    // 返回結果給本地 UI 更新
     Navigator.of(context).pop(
       LeaveEditDialogResult(isCancelled: false, planByDate: planByDate),
     );
@@ -266,7 +328,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 頂部標題
             Padding(
               padding:
               const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -288,7 +349,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
             ),
             const Divider(height: 1),
 
-            // 內容
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(12),
@@ -304,7 +364,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                       ),
                       child: Column(
                         children: [
-                          // 第一行：人頭 + 姓名 + 垃圾桶
                           Row(
                             children: [
                               CircleAvatar(
@@ -325,11 +384,10 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                       nameCtrls[i].text = toFill;
                                       nameCtrls[i].selection =
                                           TextSelection.fromPosition(
-                                            TextPosition(
+                                            TextSelection.fromPosition(
                                                 offset: toFill.length),
                                           );
                                     });
-                                    // 填好名之後直接跳去「類型」再去「原因」
                                     focusRow(i, 1);
                                   },
                                 ),
@@ -353,8 +411,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                 icon: const Icon(Icons.delete,
                                     color: Colors.red),
                                 onPressed: () async {
-                                  // 如果 FullCalendar 有傳入 onCancelMyPending，
-                                  // 並且呢行係自己個名，可以真正取消 pending leave
                                   if (widget.onCancelMyPending != null &&
                                       nameCtrls[i].text.trim() ==
                                           widget.myName) {
@@ -368,7 +424,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                     return;
                                   }
 
-                                  // 否則只係清空表格
                                   setState(() {
                                     nameCtrls[i].clear();
                                     reasonCtrls[i].clear();
@@ -379,10 +434,8 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          // 第二行：類型 + 原因 + 日數
                           Row(
                             children: [
-                              // 類型
                               SizedBox(
                                 width: 90,
                                 child: DropdownButtonFormField<String>(
@@ -399,7 +452,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                     if (v == null) return;
                                     setState(() {
                                       typeSelected[i] = v;
-                                      // 根據類型自動填入原因（快捷功能）
                                       switch (v) {
                                         case 'AL':
                                           reasonCtrls[i].text = 'AL';
@@ -416,7 +468,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                         default:
                                           reasonCtrls[i].text = '';
                                       }
-                                      // 自動將焦點移到原因欄位
                                       focusRow(i, 1);
                                     });
                                   },
@@ -428,7 +479,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              // 原因
                               Expanded(
                                 child: TextField(
                                   controller: reasonCtrls[i],
@@ -443,7 +493,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              // 日數
                               SizedBox(
                                 width: 64,
                                 child: TextField(
@@ -471,7 +520,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
 
             const Divider(height: 1),
 
-            // 底部按鈕
             Padding(
               padding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
