@@ -54,7 +54,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
   final List<String> _allTeams = ['A', 'B', 'C', 'D'];
   late TabController _tabController;
 
-  // 用來儲存所有隊伍的待審批數據與勾選狀態
   final Map<String, List<PendingLeaveItem>> _teamItemsMap = {'A': [], 'B': [], 'C': [], 'D': []};
   final Map<String, Set<String>> _teamSelectedIdsMap = {'A': {}, 'B': {}, 'C': {}, 'D': {}};
 
@@ -75,7 +74,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
 
   void _handleTabSelection() {
     if (_tabController.indexIsChanging) {
-      // 當切換 Tab 時，觸發 UI 重繪即可（數據在初始化時已一次過同步監聽或加載）
       setState(() {});
     }
   }
@@ -96,7 +94,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       return;
     }
 
-    // 設定初始選中的 Tab
     String initialTeam = 'A';
     if (_isSuperAdmin && widget.teamCode != null) {
       initialTeam = widget.teamCode!.toUpperCase();
@@ -110,8 +107,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     }
 
     if (mounted) setState(() => _loading = false);
-
-    // 一次過加載所有隊伍的待審批數據，方便在 Tab 上顯示數量
     _loadAllTeamsPendingItems();
   }
 
@@ -130,7 +125,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
   }
 
   Future<void> _loadPendingItemsForTeam(String team) async {
-    // 如果不是 Super Admin 且不是自己隊伍，則不請求數據（安全權限防護）
     if (!_isSuperAdmin && team != _homeGroup) {
       return;
     }
@@ -242,7 +236,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final docId = parts[0];
         final index = int.parse(parts[1]);
         final item = _currentPendingItems.firstWhere(
-          (i) => i.docId == docId && i.index == index,
+              (i) => i.docId == docId && i.index == index,
           orElse: () => throw Exception('找不到項目'),
         );
         itemsToNotify.add(item);
@@ -271,10 +265,10 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     final prefs = await SharedPreferences.getInstance();
     final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
     final itemsList = items.map((item) {
-      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name;
+      final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
       return '👤 $displayName - ${item.dateKey} (${item.reason.isNotEmpty ? item.reason : '無'})';
     }).join('\n');
-    final message = '✅ 批量批准請假\n\n$itemsList\n\n🔍 審批人: $approverNickname';
+    final message = '✅ 批量批准請假\n\n👥 隊伍: $team 隊\n\n$itemsList\n\n🔍 審批人: $approverNickname';
     await Clipboard.setData(ClipboardData(text: message));
     _showInfoDialog('訊息已複製到剪貼簿，請手動貼上到 WhatsApp 群組');
     final launchUri = Uri.parse(groupLink);
@@ -286,10 +280,10 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
   }
 
   Future<void> _updateSingleItemStatus(
-    PendingLeaveItem item,
-    String newStatus, {
-    bool skipReload = false,
-  }) async {
+      PendingLeaveItem item,
+      String newStatus, {
+        bool skipReload = false,
+      }) async {
     if (mounted) {
       setState(() {
         _teamItemsMap[item.team]?.removeWhere((i) => i.docId == item.docId && i.name == item.name);
@@ -307,16 +301,27 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final data = docSnap.data()!;
         final names = List<String>.from(data['names'] ?? []);
         final statuses = List<String>.from(data['statuses'] ?? List.filled(names.length, 'pending'));
+        final reasons = List<String>.from(data['reasons'] ?? List.filled(names.length, ''));
+        final nicknames = List<String>.from(data['nicknames'] ?? List.filled(names.length, ''));
+        final staffIds = List<String>.from(data['staffIds'] ?? List.filled(names.length, ''));
 
-        final normalizedName = item.name.replaceAll(RegExp(r'\s'), '');
-        final idx = names.indexWhere((n) => n.replaceAll(RegExp(r'\s'), '') == normalizedName);
-        if (idx != -1) {
-          statuses[idx] = newStatus;
-          final allDone = statuses.every((s) => s != 'pending');
+        if (item.index >= 0 && item.index < names.length) {
+          statuses[item.index] = newStatus;
+
+          final hasApproved = statuses.contains('approved');
+          final hasPending = statuses.contains('pending');
+          String overallStatus = 'pending';
+          if (hasApproved && !hasPending) {
+            overallStatus = 'approved';
+          } else if (hasApproved && hasPending) {
+            overallStatus = 'partial';
+          } else if (!hasApproved && !hasPending) {
+            overallStatus = 'rejected';
+          }
 
           transaction.update(docRef, {
             'statuses': statuses,
-            'status': allDone ? 'approved' : 'partial',
+            'status': overallStatus,
             'updatedAt': FieldValue.serverTimestamp(),
           });
         }
@@ -325,6 +330,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       await WidgetSnapshotWriter.forceRefreshForTeam(item.team);
       if (!skipReload && mounted) await _loadPendingItemsForTeam(item.team);
     } catch (e) {
+      debugPrint('更新狀態失敗: $e');
       if (mounted) {
         setState(() {
           if (!_teamItemsMap[item.team]!.any((i) => i.docId == item.docId && i.name == item.name)) {
@@ -359,14 +365,16 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
 
   Future<void> _approveSingle(PendingLeaveItem item) async {
     await _updateSingleItemStatus(item, 'approved');
-    _sendSingleWhatsApp(item);
+    await _sendApproveWhatsApp(item);
   }
 
   Future<void> _rejectSingle(PendingLeaveItem item) async {
     await _updateSingleItemStatus(item, 'rejected');
+    await _sendRejectWhatsAppToGroup(item);
   }
 
-  Future<void> _sendSingleWhatsApp(PendingLeaveItem item) async {
+  /// 批准 WhatsApp 通知（群組）
+  Future<void> _sendApproveWhatsApp(PendingLeaveItem item) async {
     try {
       final groupLink = await WhatsAppGroups.getLinkForTeam(item.team);
       if (groupLink == null || groupLink.isEmpty) {
@@ -375,10 +383,18 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       }
       final prefs = await SharedPreferences.getInstance();
       final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
-      final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name;
-      final message = '✅ 已核准請假\n\n👤 員工: $displayName\n📅 日期: ${item.dateKey}\n📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n🔍 審批人: $approverNickname';
+      final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
+
+      final message = '✅ 已核准請假\n\n'
+          '👥 隊伍: ${item.team} 隊\n'
+          '👤 員工: $displayName\n'
+          '📅 日期: ${item.dateKey}\n'
+          '📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n'
+          '🔍 審批人: $approverNickname';
+
       await Clipboard.setData(ClipboardData(text: message));
       _showInfoDialog('訊息已複製到剪貼簿，請手動貼上到 WhatsApp 群組');
+
       final launchUri = Uri.parse(groupLink);
       if (await canLaunchUrl(launchUri)) {
         await launchUrl(launchUri, mode: LaunchMode.externalApplication);
@@ -388,99 +404,35 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     }
   }
 
-  Widget _buildTeamListView(String team) {
-    // 權限防護：非 Super Admin 且非自己隊伍，顯示無權限卡片
-    if (!_isSuperAdmin && team != _homeGroup) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 48, color: Colors.grey),
-            SizedBox(height: 8),
-            Text('🔒 您只能查看及審批自己所屬的隊伍', style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      );
+  /// 拒絕 WhatsApp 通知（群組）
+  Future<void> _sendRejectWhatsAppToGroup(PendingLeaveItem item) async {
+    try {
+      final groupLink = await WhatsAppGroups.getLinkForTeam(item.team);
+      if (groupLink == null || groupLink.isEmpty) {
+        _showErrorDialog('隊伍 ${item.team} 未設定群組連結');
+        return;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
+      final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
+
+      final message = '❌ 已拒絕請假\n\n'
+          '👥 隊伍: ${item.team} 隊\n'
+          '👤 員工: $displayName\n'
+          '📅 日期: ${item.dateKey}\n'
+          '📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n'
+          '🔍 審批人: $approverNickname';
+
+      await Clipboard.setData(ClipboardData(text: message));
+      _showInfoDialog('訊息已複製到剪貼簿，請手動貼上到 WhatsApp 群組');
+
+      final launchUri = Uri.parse(groupLink);
+      if (await canLaunchUrl(launchUri)) {
+        await launchUrl(launchUri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('拒絕 WhatsApp 發送失敗: $e');
     }
-
-    final items = _teamItemsMap[team] ?? [];
-    final selectedIds = _teamSelectedIdsMap[team] ?? {};
-
-    if (items.isEmpty) {
-      return const Center(child: Text('🎉 暫無待核准請假'));
-    }
-
-    return ListView.builder(
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        final itemId = '${item.docId}_${item.index}';
-        final displayName = item.nickname.isNotEmpty ? '${item.nickname} (${item.name})' : item.name;
-
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          child: ListTile(
-            leading: Checkbox(
-              value: selectedIds.contains(itemId),
-              onChanged: (_) => _toggleSelection(itemId),
-            ),
-            title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
-                    const SizedBox(width: 4),
-                    Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87)),
-                  ],
-                ),
-                if (item.reason.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Icon(Icons.edit_note, size: 16, color: Colors.blueGrey),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text('原因: ${item.reason}',
-                          style: const TextStyle(color: Colors.black87),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const CircleAvatar(
-                    backgroundColor: Colors.green,
-                    radius: 14,
-                    child: Icon(Icons.check, color: Colors.white, size: 16),
-                  ),
-                  onPressed: () => _approveSingle(item),
-                ),
-                IconButton(
-                  icon: const CircleAvatar(
-                    backgroundColor: Colors.red,
-                    radius: 14,
-                    child: Icon(Icons.close, color: Colors.white, size: 16),
-                  ),
-                  onPressed: () => _rejectSingle(item),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -513,7 +465,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
           labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
           tabs: _allTeams.map((team) {
             final count = _teamItemsMap[team]?.length ?? 0;
-            // 如果有待審批項目，就在 Tab 加上紅色小圓點或者數字提示
             return Tab(
               text: count > 0 ? '$team 隊 ($count)' : '$team 隊',
             );
@@ -529,7 +480,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
               child: Row(
                 children: [
                   Text('已選擇【$_currentTeam 隊】${_currentSelectedIds.length} 項',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                   const Spacer(),
                   ElevatedButton.icon(
                     onPressed: _isBatchProcessing ? null : _batchApprove,
@@ -545,12 +496,105 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              // 如果是非 Super Admin，雖然能切換 Tab，但看其他隊伍時會被 _buildTeamListView 擋下提示無權限，符合架構安全
               children: _allTeams.map((team) => _buildTeamListView(team)).toList(),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTeamListView(String team) {
+    if (!_isSuperAdmin && team != _homeGroup) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 48, color: Colors.grey),
+            SizedBox(height: 8),
+            Text('🔒 您只能查看及審批自己所屬的隊伍', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      );
+    }
+
+    final items = _teamItemsMap[team] ?? [];
+    final selectedIds = _teamSelectedIdsMap[team] ?? {};
+
+    if (items.isEmpty) {
+      return const Center(child: Text('🎉 暫無待核准請假'));
+    }
+
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final itemId = '${item.docId}_${item.index}';
+        final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: ListTile(
+            leading: Checkbox(
+              value: selectedIds.contains(itemId),
+              onChanged: (_) => _toggleSelection(itemId),
+            ),
+            title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
+                    const SizedBox(width: 4),
+                    Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87)),
+                  ],
+                ),
+                if (item.reason.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(Icons.edit_note, size: 16, color: Colors.blueGrey),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text('原因: ${item.reason}',
+                            style: const TextStyle(color: Colors.black87),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const CircleAvatar(
+                    backgroundColor: Colors.green,
+                    radius: 14,
+                    child: Icon(Icons.check, color: Colors.white, size: 16),
+                  ),
+                  onPressed: () => _approveSingle(item),
+                ),
+                IconButton(
+                  icon: const CircleAvatar(
+                    backgroundColor: Colors.red,
+                    radius: 14,
+                    child: Icon(Icons.close, color: Colors.white, size: 16),
+                  ),
+                  onPressed: () => _rejectSingle(item),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

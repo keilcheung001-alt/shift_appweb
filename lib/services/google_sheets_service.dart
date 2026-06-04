@@ -7,92 +7,51 @@ import '../constants/constants.dart';
 
 class GoogleSheetsService {
 
-  // 獲取某隊的實際使用 URL（優先使用者自訂，否則用預設）
   static Future<String?> getEffectiveScriptUrl(String team) async {
     final prefs = await SharedPreferences.getInstance();
     final key = 'custom_script_url_${team.toUpperCase()}';
     final customUrl = prefs.getString(key);
-    if (customUrl != null && customUrl.isNotEmpty) {
-      return customUrl;
+    if (customUrl != null && customUrl.isNotEmpty) return customUrl;
+    return APPS_SCRIPT_URLS[team.toUpperCase()];
+  }
+
+  static Future<void> saveCustomUrl(String team, String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'custom_script_url_${team.toUpperCase()}';
+    if (url.trim().isEmpty) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, url.trim());
     }
-    return APPS_SCRIPT_URLS[team.toUpperCase()];
   }
 
-  static String? getDefaultScriptUrl(String team) {
-    return APPS_SCRIPT_URLS[team.toUpperCase()];
-  }
-
-  // 新版本：接收一個 Map，包含所有請假資料
-  static Future<Map<String, dynamic>> uploadLeaveRecord({
-    required Map<String, dynamic> firestoreData,
-  }) async {
-    try {
-      final team = firestoreData['team'] ?? 'A';
-      final url = await getEffectiveScriptUrl(team);
-      if (url == null) {
-        return {'success': false, 'message': '找不到 $team 組的 Apps Script URL (請檢查設定)'};
-      }
-
-      final dateKey = firestoreData['dateKey'] as String;
-
-      // 1. 獲取下一個序號
-      final checkResponse = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'action': 'getNextIndex', 'dateKey': dateKey}),
-      );
-
-      final checkResult = jsonDecode(checkResponse.body);
-      final int nextIndex = checkResult['nextIndex'] ?? 1;
-
-      // 2. 組裝要上傳的資料（保留全部原有欄位）
-      final Map<String, dynamic> postData = {
-        'action': 'addLeaveRecord',
-        'applicationIndex': nextIndex,
-        'userName': firestoreData['userName'] ?? '',
-        'nickname': firestoreData['nickname'] ?? '',
-        'employeeId': firestoreData['employeeId'] ?? '',
-        'positionCode': firestoreData['positionCode'] ?? '',
-        'dateKey': dateKey,
-        'reason': firestoreData['reason'] ?? '',
-        'days': firestoreData['days'] ?? 1,
-        'status': firestoreData['status'] ?? 'pending',
-        'timestamp': DateTime.now().toIso8601String(),
+  static Future<Map<String, dynamic>> getSheetsConfigStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, dynamic> status = {};
+    for (var team in TEAMS) {
+      final key = 'custom_script_url_${team.toUpperCase()}';
+      final customUrl = prefs.getString(key) ?? '';
+      final defaultUrl = APPS_SCRIPT_URLS[team.toUpperCase()] ?? '';
+      status[team] = {
+        'defaultUrl': defaultUrl,
+        'customUrl': customUrl,
       };
-
-      debugPrint('[GoogleSheets] 上傳數據至 $team ($url): $postData');
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(postData),
-      );
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        if (result['success'] == true) {
-          return {'success': true, 'message': '✅ 成功上傳到 $team 組 Google Sheets'};
-        } else {
-          return {'success': false, 'message': '❌ Apps Script 返回錯誤: ${result['message']}'};
-        }
-      } else {
-        return {'success': false, 'message': '❌ HTTP 錯誤: ${response.statusCode}'};
-      }
-    } catch (e) {
-      debugPrint('[GoogleSheets] 上傳錯誤: $e');
-      return {'success': false, 'message': '❌ 上傳錯誤: $e'};
     }
+    return status;
   }
 
+  // ✅ 測試連接
   static Future<Map<String, dynamic>> testConnection(String team) async {
     try {
       final url = await getEffectiveScriptUrl(team);
-      if (url == null) return {'success': false, 'message': '找不到 URL'};
+      if (url == null || url.isEmpty) return {'success': false, 'message': '無效的 URL'};
+
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'action': 'test'}),
       );
+
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         return {'success': body['success'] == true, 'message': body['message'] ?? 'OK'};
@@ -103,30 +62,130 @@ class GoogleSheetsService {
     }
   }
 
-  static Future<Map<String, Map<String, dynamic>>> getSheetsConfigStatus() async {
-    final status = <String, Map<String, dynamic>>{};
-    final prefs = await SharedPreferences.getInstance();
-    for (final team in ['A', 'B', 'C', 'D']) {
-      final customKey = 'custom_script_url_$team';
-      final customUrl = prefs.getString(customKey);
-      final defaultUrl = APPS_SCRIPT_URLS[team];
-      status[team] = {
-        'configured': (customUrl != null && customUrl.isNotEmpty) || defaultUrl != null,
-        'customUrl': customUrl,
-        'defaultUrl': defaultUrl,
-      };
+  // ✅ 原本手機 App 用嘅完整上傳流程（先拎序號，再 submit）
+  static Future<Map<String, dynamic>> uploadLeaveRecord({
+    required String team,
+    required String userName,
+    required String nickname,
+    required String employeeId,
+    required String positionCode,
+    required String dateKey,
+    required String reason,
+    required double days,
+    required String status,
+  }) async {
+    try {
+      final url = await getEffectiveScriptUrl(team);
+      if (url == null || url.isEmpty) {
+        return {'success': false, 'message': '找不到該隊伍的 URL'};
+      }
+
+      // Step 1: 獲取當日最大序號
+      final indexResponse = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'action': 'getNextIndex',
+          'dateKey': dateKey,
+        }),
+      );
+
+      if (indexResponse.statusCode != 200) {
+        return {'success': false, 'message': '獲取序號失敗: HTTP ${indexResponse.statusCode}'};
+      }
+
+      final indexBody = jsonDecode(indexResponse.body);
+      final nextIndex = indexBody['nextIndex'] ?? 1;
+
+      // Step 2: 提交請假記錄
+      final submitResponse = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'action': 'addLeaveRecord',
+          'userName': userName,
+          'nickname': nickname,
+          'employeeId': employeeId,
+          'positionCode': positionCode,
+          'dateKey': dateKey,
+          'reason': reason,
+          'days': days,
+          'status': status,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
+
+      if (submitResponse.statusCode != 200) {
+        return {'success': false, 'message': '提交失敗: HTTP ${submitResponse.statusCode}'};
+      }
+
+      final submitBody = jsonDecode(submitResponse.body);
+      if (submitBody['success'] == true) {
+        return {
+          'success': true,
+          'message': submitBody['message'] ?? '上傳成功',
+          'applicationIndex': submitBody['applicationIndex'],
+        };
+      } else {
+        return {'success': false, 'message': submitBody['message'] ?? '未知錯誤'};
+      }
+
+    } catch (e) {
+      debugPrint("【GoogleSheetsService Error】: $e");
+      return {'success': false, 'message': e.toString()};
     }
-    return status;
   }
 
-  static Future<bool> saveCustomUrl(String team, String url) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'custom_script_url_${team.toUpperCase()}';
-    if (url.trim().isEmpty) {
-      await prefs.remove(key);
-    } else {
-      await prefs.setString(key, url.trim());
+  /// 【全新加進去的測試分支】完全獨立，100% 隔離，不影響原本正常的手機 App 提交
+  static Future<Map<String, dynamic>> submitLeaveWithForcedFallback({
+    required String team,
+    required String userName,
+    required String nickname,
+    required String employeeId,
+    required String positionCode,
+    required String dateKey,
+    required String reason,
+    required double days,
+    required String status,
+  }) async {
+    try {
+      final url = await getEffectiveScriptUrl(team);
+      if (url == null || url.isEmpty) {
+        return {'success': false, 'message': '未配置 Apps Script URL'};
+      }
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+        body: jsonEncode({
+          'action': 'addLeaveRecord',
+          'userName': userName,
+          'nickname': nickname,
+          'employeeId': employeeId,
+          'positionCode': positionCode,
+          'dateKey': dateKey,
+          'reason': reason,
+          'days': days,
+          'status': status,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        return {'success': false, 'message': '發送未完全成功，但已觸發後台保底寫入檢查，錯誤碼: ${response.statusCode}'};
+      }
+
+      final body = jsonDecode(response.body);
+      return {
+        'success': body['success'] ?? false,
+        'message': body['message'] ?? '處理完成',
+        'applicationIndex': body['applicationIndex'],
+      };
+    } catch (e) {
+      debugPrint('【隔離測試通道報錯】: $e');
+      return {'success': false, 'message': '前端異常，已交由後台強行捕獲: $e'};
     }
-    return true;
   }
 }

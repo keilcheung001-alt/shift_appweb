@@ -115,12 +115,12 @@ const Map<String, List<String>> TEAM_CYCLES = {
   'D': ['LN', 'LN', '', '', 'M', 'M', 'A', '', '', 'N', 'N', '', '', 'M', 'LM', 'LM', 'A', 'A', 'N', 'N', '', '', '', 'M', 'M', 'A', 'A', 'N'],
 };
 
-// Apps Script URLs (已更新為新部署網址，經測試可正常存取)
-const String APPS_SCRIPT_URL_A_TEAM = 'https://script.google.com/macros/s/AKfycbw2GyPgz2003S1W4YrvtVSl3UQj6uV7n3SgMFMHmxdPSF_rJb3IAoRd6Y6M9_aNtGGb/exec';
-const String APPS_SCRIPT_URL_B_TEAM = 'https://script.google.com/macros/s/AKfycbzPE2EXDTDDmU5yYjEcBi0-rKZHHfSIvvXBX2_Rc8g6CVAamOuvI-5DTMIMQxh8XMB4mg/exec';
-const String APPS_SCRIPT_URL_C_TEAM = 'https://script.google.com/macros/s/AKfycbxADmKqQJtBmmEmZUMtBD9gqvrkexIRIfvGZRymfR3ZhAr4DxiqmepqT29uXzltVs_x8g/exec';
-const String APPS_SCRIPT_URL_D_TEAM = 'https://script.google.com/macros/s/AKfycbwfxxPHyUFRaAQS-F4sCrCGGdb9cp_BxM0-WdPz_YzX2Y4oH9kXrS4ACKlky2pnLuWqgw/exec';
+// ========== 直接使用你文件入面嘅四條 URL（已填好）==========
 
+const String APPS_SCRIPT_URL_A_TEAM = 'https://script.google.com/macros/s/AKfycbzXbDmtHNiv71P1SW3r5-Fm4WICcmTfEZUwfGWlHarrFw19OrWpgMYkQTIF88cV3CgS/exec';
+const String APPS_SCRIPT_URL_B_TEAM = 'https://script.google.com/macros/s/AKfycbzPvr-4frfwm8m-IpFM4j_WN3vT1FZTi_Mc-Evu_08iH1C4fBEjYGd6byBMwrlzwmEnoA/exec';
+const String APPS_SCRIPT_URL_C_TEAM = 'https://script.google.com/macros/s/AKfycbxhFexwsKjPB_MoPZakG_eVfBfoRbrnZbTQOWtELYHh2U3MRDpFxG1pVH182kGUkfkx/exec';
+const String APPS_SCRIPT_URL_D_TEAM = 'https://script.google.com/macros/s/AKfycbz9W7rLvOqNI_vzjlTg5ti5xI6XhLP_gShKERXflq6_q-brFVDoyDUSQiaNtS7NQSarlQ/exec';
 const Map<String, String> APPS_SCRIPT_URLS = {
   'A': APPS_SCRIPT_URL_A_TEAM,
   'B': APPS_SCRIPT_URL_B_TEAM,
@@ -142,7 +142,5 @@ const String ROUTE_CALENDAR_A = '/calendarA';
 const String ROUTE_CALENDAR_B = '/calendarB';
 const String ROUTE_CALENDAR_C = '/calendarC';
 const String ROUTE_CALENDAR_D = '/calendarD';
-
-// 公告路由
 const String ROUTE_NOTIFICATIONS = '/notifications';
 const String ROUTE_ADMIN_NOTIFICATIONS = '/admin_notifications';

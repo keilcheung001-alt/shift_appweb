@@ -10,6 +10,7 @@ import '../constants/constants.dart';
 import '../widgets/leave_edit_dialog.dart';
 import '../services/google_sheets_service.dart';
 import '../utils/widget_snapshot_writer.dart';
+import '../services/leave_delete_service.dart';
 
 class FullCalendarATeam extends StatefulWidget {
   final String staffId;
@@ -165,7 +166,19 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
   }
 
   bool isSameDate(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
-  int countPeopleForDate(String dk) => (teamLeave[dk]?['names'] as List<dynamic>?)?.length ?? 0;
+
+  int countPeopleForDate(String dk) {
+    final info = teamLeave[dk];
+    if (info == null) return 0;
+    final names = (info['names'] as List<dynamic>?) ?? [];
+    final statuses = (info['statuses'] as List<dynamic>?) ?? [];
+    int count = 0;
+    for (int i = 0; i < names.length; i++) {
+      final status = i < statuses.length ? statuses[i] : 'pending';
+      if (status != 'rejected') count++;
+    }
+    return count;
+  }
 
   Color badgeColorForCount(int count) {
     if (count == 0) return Colors.grey.shade300;
@@ -232,7 +245,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
     subscribedVisibleEndExclusive = range.endExclusive;
     final query = FirebaseFirestore.instance
         .collection(leaveCollection)
-        .where('status', whereIn: ['pending', 'approved', 'partial'])
+        .where('status', whereIn: ['pending', 'approved', 'partial', 'rejected'])
         .where('dateKey', isGreaterThanOrEqualTo: DateFormat('yyyy-MM-dd').format(range.start))
         .where('dateKey', isLessThan: DateFormat('yyyy-MM-dd').format(range.endExclusive))
         .orderBy('dateKey');
@@ -249,8 +262,12 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
           final names = (info['names'] as List<dynamic>?)?.cast<String>() ?? [];
           final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
           final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
+          final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
           final formatted = <String>[];
           for (int i = 0; i < names.length; i++) {
+            final status = i < statuses.length ? statuses[i] : 'pending';
+            if (status == 'rejected') continue;
+
             String displayName = names[i];
             if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
               displayName = nicknames[i].trim();
@@ -266,7 +283,9 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
               formatted.add(displayName);
             }
           }
-          monthLeaves[dateKey] = formatted;
+          if (formatted.isNotEmpty) {
+            monthLeaves[dateKey] = formatted;
+          }
         });
         WidgetSnapshotWriter.saveFullMonthLeaves(teamCode, monthLeaves);
       },
@@ -295,9 +314,11 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
     })
         .toList()
       ..sort((a, b) => a.key.compareTo(b.key));
+
     if (monthLeaves.isEmpty) {
       return const Center(child: Text('無請假紀錄', style: TextStyle(fontSize: 14, color: Colors.grey)));
     }
+
     return ListView.builder(
       physics: const NeverScrollableScrollPhysics(),
       itemCount: monthLeaves.length,
@@ -308,8 +329,12 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         final nicknames = (info['nicknames'] as List<dynamic>?)?.cast<String>() ?? const [];
         final reasons = (info['reasons'] as List<dynamic>?)?.cast<String>() ?? const [];
         final statuses = (info['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
+
         final Map<String, Map<String, dynamic>> merged = {};
         for (int i = 0; i < names.length; i++) {
+          final status = i < statuses.length ? statuses[i] : 'pending';
+          if (status == 'rejected') continue;
+
           final name = names[i];
           String displayName = name;
           if (i < nicknames.length && nicknames[i].trim().isNotEmpty) {
@@ -317,7 +342,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
           }
           String reason = i < reasons.length ? reasons[i].trim() : '';
           if (reason.isEmpty) continue;
-          final status = i < statuses.length ? statuses[i] : 'pending';
+
           final parts = reason.split('-');
           final firstType = parts.first;
           final allSame = parts.every((p) => p == firstType);
@@ -329,6 +354,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
             merged['$displayName|$reason|$status'] = {'name': displayName, 'type': reason, 'days': 1, 'status': status};
           }
         }
+
         final pairs = merged.values.map((m) {
           final days = m['days'] as int;
           final type = m['type'] as String;
@@ -341,6 +367,9 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
             return '$name ($type)$statusIcon';
           }
         }).toList();
+
+        if (pairs.isEmpty) return const SizedBox.shrink();
+
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: Text(
@@ -354,61 +383,81 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
     );
   }
 
-  Future<void> cancelMyPendingLeaveForDay(DateTime day) async {
-    if (myName.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未設定姓名，無法取消請假')));
+  Future<void> _showAdminDeleteDialog(DateTime day) async {
+    final people = LeaveDeleteService.getLeavePeopleForDay(teamLeave, day);
+    if (people.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('當日無請假記錄')));
       return;
     }
-    final dk = dateKey(day);
-    final col = FirebaseFirestore.instance.collection(leaveCollection);
-    final docRef = col.doc(dk);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(docRef);
-      if (!snap.exists) return;
-      final data = snap.data() as Map<String, dynamic>;
-      final namesDyn = (data['names'] as List<dynamic>? ?? []);
-      final reasonsDyn = (data['reasons'] as List<dynamic>? ?? []);
-      final statusesDyn = (data['statuses'] as List<dynamic>? ?? []);
-      final nicknamesDyn = (data['nicknames'] as List<dynamic>? ?? []);
-      final staffIdsDyn = (data['staffIds'] as List<dynamic>? ?? []);
-      final names = List<String>.from(namesDyn.map((e) => e.toString().trim()));
-      final reasons = List<String>.from(reasonsDyn.map((e) => e.toString().trim()));
-      final statuses = List<String>.from(statusesDyn.map((e) => e.toString().trim()));
-      final nicknames = List<String>.from(nicknamesDyn.map((e) => e.toString().trim()));
-      final staffIds = List<String>.from(staffIdsDyn.map((e) => e.toString().trim()));
-      final idx = names.indexWhere((n) => n.trim().toLowerCase() == myName.trim().toLowerCase());
-      if (idx == -1) return;
-      if (idx >= statuses.length || statuses[idx] != 'pending') return;
-      names.removeAt(idx);
-      if (idx < reasons.length) reasons.removeAt(idx);
-      if (idx < statuses.length) statuses.removeAt(idx);
-      if (idx < nicknames.length) nicknames.removeAt(idx);
-      if (idx < staffIds.length) staffIds.removeAt(idx);
-      if (names.isEmpty) {
-        tx.delete(docRef);
-      } else {
-        final bool hasApproved = statuses.contains('approved');
-        final bool hasPending = statuses.contains('pending');
-        String overallStatus = 'pending';
-        if (hasApproved && !hasPending) {
-          overallStatus = 'approved';
-        } else if (hasApproved && hasPending) {
-          overallStatus = 'partial';
-        }
-        tx.update(docRef, {
-          'names': names,
-          'reasons': reasons,
-          'statuses': statuses,
-          'nicknames': nicknames,
-          'staffIds': staffIds,
-          'status': overallStatus,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-    });
-    await subscribeLeavesForVisibleRange();
+
+    final selectedIndex = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('🗑️ 管理員刪除請假記錄'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: people.length,
+            itemBuilder: (ctx, idx) {
+              final p = people[idx];
+              final displayName = p['nickname'].toString().isNotEmpty
+                  ? '${p['nickname']} (${p['name']})'
+                  : p['name'];
+              String statusText = '';
+              if (p['status'] == 'approved') statusText = '✅ 已批';
+              else if (p['status'] == 'pending') statusText = '⏳ 待批';
+              else if (p['status'] == 'rejected') statusText = '❌ 已拒';
+
+              return ListTile(
+                leading: const Icon(Icons.person, color: Colors.blue),
+                title: Text(displayName),
+                subtitle: Text(statusText),
+                trailing: const Icon(Icons.delete, color: Colors.red),
+                onTap: () => Navigator.pop(ctx, idx),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('取消')),
+        ],
+      ),
+    );
+
+    if (selectedIndex == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('確認刪除'),
+        content: Text('確定要刪除「${people[selectedIndex]['name']}」的請假記錄嗎？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('確認刪除', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final success = await LeaveDeleteService.adminForceDelete(
+      teamCode: teamCode,
+      day: day,
+      targetIndex: selectedIndex,
+      onRefresh: () => subscribeLeavesForVisibleRange(),
+    );
+
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已取消你當日嘅待批假期')));
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ 已刪除該員工請假記錄')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ 刪除失敗'), backgroundColor: Colors.red));
+    }
   }
 
   Future<void> openEditDialog(DateTime day) async {
@@ -430,6 +479,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
       return '';
     });
     final initDays = List<int>.filled(5, 1);
+
     final result = await showDialog<LeaveEditDialogResult>(
       context: context,
       builder: (context) => LeaveEditDialog(
@@ -443,9 +493,27 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         publicHolidays: publicHolidays.keys.toSet(),
         cycle: cycle,
         cycleStart: cycleStart,
-        onCancelMyPending: () => cancelMyPendingLeaveForDay(day),
+        onCancelMyPending: () async {
+          final success = await LeaveDeleteService.deleteMyLeave(
+            teamCode: teamCode,
+            myName: myName,
+            day: day,
+            onSuccess: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('已刪除你的請假記錄')),
+              );
+            },
+            onRefresh: () => subscribeLeavesForVisibleRange(),
+          );
+          if (!success && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('無法刪除，請稍後再試'), backgroundColor: Colors.red),
+            );
+          }
+        },
       ),
     );
+
     if (result == null || result.isCancelled) return;
     final col = FirebaseFirestore.instance.collection(leaveCollection);
     for (final entry in result.planByDate.entries) {
@@ -538,18 +606,17 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
         final reason = i < newReasons.length ? newReasons[i] : '';
         final int days = i < newDays.length ? newDays[i] : 1;
         final bool isSelf = person == myName;
+        // ✅ 修正：直接傳參數，唔用 firestoreData
         await GoogleSheetsService.uploadLeaveRecord(
-          firestoreData: {
-            'team': widget.teamCode,
-            'userName': person,
-            'nickname': isSelf ? myNickname : '',
-            'employeeId': isSelf ? myEmployeeId : '',
-            'positionCode': isSelf ? myJobTitle : '',
-            'dateKey': dateKeyStr,
-            'reason': reason,
-            'days': days,
-            'status': 'pending',
-          },
+          team: widget.teamCode,
+          userName: person,
+          nickname: isSelf ? myNickname : '',
+          employeeId: isSelf ? myEmployeeId : '',
+          positionCode: isSelf ? myJobTitle : '',
+          dateKey: dateKeyStr,
+          reason: reason,
+          days: days.toDouble(),
+          status: 'pending',
         );
       }
     }
@@ -650,6 +717,7 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
                     alignment: Alignment.center,
                     child: GestureDetector(
                       onTap: () => openEditDialog(day),
+                      onLongPress: widget.isSuperAdmin ? () => _showAdminDeleteDialog(day) : null,
                       child: Container(
                         decoration: BoxDecoration(
                           color: cellBg,

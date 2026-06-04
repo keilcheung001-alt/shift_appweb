@@ -238,7 +238,7 @@ class _LoginPageState extends State<LoginPage> {
                           child: ElevatedButton.icon(
                             onPressed: () => _handleLogin('SM'),
                             icon: const Icon(Icons.shield, color: Colors.white),
-                            label: const Text('隊長登入', style: TextStyle(fontSize: 16)),
+                            label: const Text('leader登入', style: TextStyle(fontSize: 16)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                               foregroundColor: Colors.white,
@@ -253,7 +253,7 @@ class _LoginPageState extends State<LoginPage> {
                           child: ElevatedButton.icon(
                             onPressed: () => _handleLogin('SR'),
                             icon: const Icon(Icons.people, color: Colors.white),
-                            label: const Text('SR登入', style: TextStyle(fontSize: 16)),
+                            label: const Text('TeamMember登入', style: TextStyle(fontSize: 16)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,

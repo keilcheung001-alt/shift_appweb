@@ -11,7 +11,7 @@ class GoogleSheetsConfigPage extends StatefulWidget {
 
 class _GoogleSheetsConfigPageState extends State<GoogleSheetsConfigPage> {
   bool _loading = true;
-  Map<String, Map<String, dynamic>> _configStatus = {};
+  Map<String, dynamic> _configStatus = {};
   final Map<String, TextEditingController> _controllers = {};
 
   @override
@@ -34,7 +34,6 @@ class _GoogleSheetsConfigPageState extends State<GoogleSheetsConfigPage> {
         _configStatus = status;
         _loading = false;
       });
-      // 建立 controllers
       for (var team in ['A', 'B', 'C', 'D']) {
         if (!_controllers.containsKey(team)) {
           final customUrl = status[team]?['customUrl'] ?? '';
@@ -51,7 +50,7 @@ class _GoogleSheetsConfigPageState extends State<GoogleSheetsConfigPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('✅ $team 隊 URL 已保存'), backgroundColor: Colors.green),
       );
-      await _loadConfig(); // 刷新顯示
+      await _loadConfig();
     }
   }
 
@@ -111,9 +110,10 @@ class _GoogleSheetsConfigPageState extends State<GoogleSheetsConfigPage> {
             ),
             const SizedBox(height: 16),
             ...['A', 'B', 'C', 'D'].map((team) {
-              final status = _configStatus[team] ?? {};
-              final defaultUrl = status['defaultUrl'] ?? '';
-              final isUsingCustom = (status['customUrl']?.isNotEmpty ?? false);
+              final teamStatus = _configStatus[team] as Map<String, dynamic>? ?? {};
+              final defaultUrl = teamStatus['defaultUrl'] ?? '';
+              final customUrl = teamStatus['customUrl'] ?? '';
+              final isUsingCustom = customUrl.isNotEmpty;
               return Card(
                 margin: const EdgeInsets.only(bottom: 16),
                 child: Padding(
