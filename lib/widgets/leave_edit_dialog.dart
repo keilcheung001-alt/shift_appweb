@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // 引入網頁端事實判斷工具[cite: 17]
+import 'package:flutter/foundation.dart' show kIsWeb; // 引入網頁端事實判斷工具
 import '../services/google_sheets_service.dart'; // 引入試算表服務
 
 class LeaveEditDialogResult {
@@ -382,10 +382,10 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                         : widget.myNickname;
                                     setState(() {
                                       nameCtrls[i].text = toFill;
+                                      // ⭐ 已修正：正確格式化 TextSelection.fromPosition 語法
                                       nameCtrls[i].selection =
                                           TextSelection.fromPosition(
-                                            TextSelection.fromPosition(
-                                                offset: toFill.length),
+                                            TextPosition(offset: toFill.length),
                                           );
                                     });
                                     focusRow(i, 1);
