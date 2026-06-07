@@ -321,7 +321,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       }
     }
 
-    // ✅ 修正：用安全的空值處理
     bool hasWarning = false;
     if (_quota != null) {
       final currentAL = (_quota!['al'] as num?)?.toDouble() ?? 0.0;
@@ -388,10 +387,12 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
 
     if (confirm != true) return;
 
+    // ✅ 扣減補鐘
     if (totalCompUsed > 0) {
       await CompensatoryTimeService.deductCompTime(_staffId, totalCompUsed);
     }
 
+    // ✅ 扣減 AL/CL/SL
     if (totalALDays > 0) {
       await QuotaService.deductLeave(
         staffId: _staffId,
@@ -417,114 +418,8 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       );
     }
 
-    final team = await AuthUtil.getHomeGroup();
-    final collection = FIRESTORE_LEAVE_COLLECTIONS[team] ?? 'a_team_leave';
-    final col = FirebaseFirestore.instance.collection(collection);
-
-    for (final entry in planByDate.entries) {
-      final dateKeyStr = entry.key;
-      final payload = entry.value;
-      final List<String> newNames = payload['names'];
-      final List<String> newReasons = payload['reasons'];
-      final List<String> newNicknames = payload['nicknames'];
-      final List<double> newCompHours = payload['compHours'];
-      final List<String> newShifts = payload['shifts'];
-
-      final docRef = col.doc(dateKeyStr);
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snap = await transaction.get(docRef);
-        List<String> oldNames = [];
-        List<String> oldNicknames = [];
-        List<String> oldReasons = [];
-        List<String> oldStatuses = [];
-        List<String> oldStaffIds = [];
-        List<double> oldCompHours = [];
-        List<String> oldShifts = [];
-
-        if (snap.exists) {
-          final data = snap.data()!;
-          oldNames = List<String>.from(data['names'] ?? []);
-          oldNicknames = List<String>.from(data['nicknames'] ?? []);
-          oldReasons = List<String>.from(data['reasons'] ?? []);
-          oldStatuses = List<String>.from(data['statuses'] ?? []);
-          oldStaffIds = List<String>.from(data['staffIds'] ?? []);
-          oldCompHours = (data['compHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-          oldShifts = List<String>.from(data['shifts'] ?? []);
-        }
-
-        for (int i = 0; i < newNames.length; i++) {
-          final name = newNames[i];
-          if (name.isEmpty) continue;
-
-          final idx = oldNames.indexOf(name);
-          if (idx == -1) {
-            oldNames.add(name);
-            oldNicknames.add(newNicknames[i]);
-            oldReasons.add(newReasons[i]);
-            oldStatuses.add('pending');
-            oldStaffIds.add(name == widget.myName ? _staffId : '');
-            oldCompHours.add(newCompHours[i]);
-            oldShifts.add(newShifts[i]);
-          } else {
-            if (newReasons[i].isNotEmpty) oldReasons[idx] = newReasons[i];
-            oldCompHours[idx] = (oldCompHours[idx] ?? 0) + newCompHours[i];
-          }
-        }
-
-        while (oldNicknames.length < oldNames.length) oldNicknames.add('');
-        while (oldReasons.length < oldNames.length) oldReasons.add('');
-        while (oldStatuses.length < oldNames.length) oldStatuses.add('pending');
-        while (oldStaffIds.length < oldNames.length) oldStaffIds.add('');
-        while (oldCompHours.length < oldNames.length) oldCompHours.add(0);
-        while (oldShifts.length < oldNames.length) oldShifts.add('');
-
-        final hasApproved = oldStatuses.contains('approved');
-        final hasPending = oldStatuses.contains('pending');
-        String overallStatus = 'pending';
-        if (hasApproved && !hasPending) {
-          overallStatus = 'approved';
-        } else if (hasApproved && hasPending) {
-          overallStatus = 'partial';
-        }
-
-        transaction.set(
-          docRef,
-          {
-            'dateKey': dateKeyStr,
-            'date': Timestamp.fromDate(DateTime.parse(dateKeyStr)),
-            'shift': shiftForDate(DateTime.parse(dateKeyStr)),
-            'names': oldNames,
-            'nicknames': oldNicknames,
-            'reasons': oldReasons,
-            'staffIds': oldStaffIds,
-            'statuses': oldStatuses,
-            'compHours': oldCompHours,
-            'shifts': oldShifts,
-            'status': overallStatus,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-      });
-
-      for (int i = 0; i < newNames.length; i++) {
-        final person = newNames[i];
-        if (person.isEmpty) continue;
-        final isSelf = person == widget.myName;
-        await GoogleSheetsService.uploadLeaveRecord(
-          team: team,
-          userName: person,
-          nickname: isSelf ? widget.myNickname : '',
-          employeeId: isSelf ? _staffId : '',
-          positionCode: '',
-          dateKey: dateKeyStr,
-          reason: newReasons[i],
-          days: 1.0,
-          status: 'pending',
-        );
-      }
-    }
+    // ✅ 刪除咗 Firestore 寫入嘅 code！還原返原本嘅設計
+    // Firestore 嘅儲存會由 full_calendar_*.dart 負責
 
     if (widget.onCancelMyPending != null) {
       widget.onCancelMyPending!();
