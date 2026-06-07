@@ -22,47 +22,6 @@ class _MyLeavePageState extends State<MyLeavePage> {
     _loadMyLeaves();
   }
 
-  // ✅ 核心輔助方法：根據當前使用者隊伍的 config_cycle 獲取動態班次
-  Future<String> _getDynamicShiftForDate(String team, DateTime date) async {
-    try {
-      final collection = FIRESTORE_LEAVE_COLLECTIONS[team] ?? 'a_team_leave';
-      final configDoc = await FirebaseFirestore.instance
-          .collection(collection)
-          .doc('config_cycle')
-          .get();
-
-      List<String> cycle = ['M', 'M', 'A', 'A', 'N', 'N', '', ''];
-      DateTime cycleStart = DateTime(2026, 1, 1);
-
-      if (configDoc.exists && configDoc.data() != null) {
-        final data = configDoc.data()!;
-        if (data['cycle'] != null) {
-          cycle = List<String>.from(data['cycle']);
-        }
-        if (data['cycleStart'] != null) {
-          if (data['cycleStart'] is Timestamp) {
-            cycleStart = (data['cycleStart'] as Timestamp).toDate();
-          } else if (data['cycleStart'] is String) {
-            cycleStart = DateTime.parse(data['cycleStart']);
-          }
-        }
-      }
-
-      final d0 = DateTime(date.year, date.month, date.day);
-      final base = DateTime(cycleStart.year, cycleStart.month, cycleStart.day);
-      final diff = d0.difference(base).inDays;
-
-      if (diff < 0 || cycle.isEmpty) return '未知班次';
-      final idx = diff % cycle.length;
-      final shiftCode = cycle[idx].trim().toUpperCase();
-
-      if (shiftCode.isEmpty) return '休息日';
-      return '$shiftCode 更';
-    } catch (e) {
-      return '未知班次';
-    }
-  }
-
   Future<void> _loadMyLeaves() async {
     final staffId = await AuthUtil.getStaffId();
     final team = await AuthUtil.getHomeGroup();
@@ -81,28 +40,24 @@ class _MyLeavePageState extends State<MyLeavePage> {
     final List<Map<String, dynamic>> leaves = [];
 
     for (final doc in snapshot.docs) {
-      if (doc.id == 'config_cycle' || doc.id == 'config_sheets') continue; // 跳過設定檔
+      if (doc.id == 'config_cycle' || doc.id == 'config_sheets') continue;
 
       final data = doc.data();
       final names = List<String>.from(data['names'] ?? []);
       final reasons = List<String>.from(data['reasons'] ?? []);
       final staffIds = List<String>.from(data['staffIds'] ?? []);
+      final statuses = List<String>.from(data['statuses'] ?? []);
       final dateTimestamp = data['date'] as Timestamp?;
       final date = dateTimestamp?.toDate();
 
       final myIndex = staffIds.indexOf(staffId);
       if (myIndex >= 0 && myIndex < names.length && date != null) {
-        // 動態讀取當前隊伍對應日期的班次
-        final shift = await _getDynamicShiftForDate(team, date);
-
         leaves.add({
-          'id': doc.id,
           'date': date,
           'leaveType': reasons[myIndex].split('-').first,
           'reason': reasons[myIndex],
           'days': data['days'] ?? 1,
-          'status': data['status'] ?? 'pending',
-          'shift': shift,
+          'status': statuses[myIndex],
         });
       }
     }
@@ -118,8 +73,6 @@ class _MyLeavePageState extends State<MyLeavePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('我的請假'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -151,27 +104,14 @@ class _MyLeavePageState extends State<MyLeavePage> {
                   color: statusColor,
                 ),
               ),
-              title: Row(
+              title: Text('${item['leaveType']} - ${item['days']}日'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${item['leaveType']} - ${item['days']}日'),
-                  const SizedBox(width: 12),
-                  // ✅ UI 修正優化：將計算好嘅動態班次，用漂亮的藍色小外框標籤顯示在標題右邊！
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: Text(
-                      item['shift'],
-                      style: TextStyle(fontSize: 11, color: Colors.blue.shade800, fontWeight: FontWeight.bold),
-                    ),
-                  ),
+                  const SizedBox(height: 4),
+                  Text('日期: ${DateFormat('yyyy-MM-dd').format(item['date'])}'),
+                  if (item['reason'].isNotEmpty) Text('原因: ${item['reason']}'),
                 ],
-              ),
-              subtitle: Text(
-                '${DateFormat('yyyy-MM-dd').format(item['date'])} ${item['reason'].isNotEmpty ? ' · ${item['reason']}' : ''}',
               ),
               trailing: Chip(
                 label: Text(item['status']),

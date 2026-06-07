@@ -149,7 +149,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final reasons = (data['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
         List<String> statuses = (data['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
 
-        // 🚀 完全維持原本的讀取逻辑，直接抓取 Firestore 裡的 shift 欄位
         final rawShift = data['shift'] as String? ?? '';
         String displayShift = '未知班次';
         if (rawShift.trim().isNotEmpty) {
@@ -175,7 +174,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
               days: 1,
               status: status,
               index: i,
-              shift: displayShift, // 帶入直接讀取到的班次名稱
+              shift: displayShift,
             ));
           }
         }
@@ -204,7 +203,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
 
   void _toggleSelectAll() {
     setState(() {
-      if (_currentSelectedIds.length == _currentPendingItems.length) {
+      if (_currentSelectedIds.length == _currentPendingItems.length && _currentPendingItems.isNotEmpty) {
         _currentSelectedIds.clear();
       } else {
         _currentSelectedIds.clear();
@@ -351,7 +350,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         }
       });
 
-      // 100% 保留原本你要求的快照更新機制，不遺漏任何事情！
       await WidgetSnapshotWriter.forceRefreshForTeam(item.team);
       if (!skipReload && mounted) await _loadPendingItemsForTeam(item.team);
     } catch (e) {
