@@ -21,7 +21,7 @@ class PendingLeaveItem {
   final int days;
   final String status;
   final int index;
-  final String shift; // ✅ 直接儲存來自 Firestore 的班次欄位
+  final String shift;
 
   PendingLeaveItem({
     required this.docId,
@@ -551,77 +551,84 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
 
         return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),  // ✅ 加大上下邊距
           elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          child: ListTile(
-            leading: Checkbox(
-              value: selectedIds.contains(itemId),
-              onChanged: (_) => _toggleSelection(itemId),
-            ),
-            title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
-                    const SizedBox(width: 4),
-                    Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87)),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade100,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.orange.shade300),
-                      ),
-                      child: Text(
-                        item.shift,
-                        style: TextStyle(fontSize: 11, color: Colors.orange.shade900, fontWeight: FontWeight.bold),
-                      ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),  // ✅ 加大內距
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              leading: Checkbox(
+                value: selectedIds.contains(itemId),
+                onChanged: (_) => _toggleSelection(itemId),
+              ),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(displayName,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.indigo.shade200),
                     ),
-                  ],
-                ),
-                if (item.reason.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.edit_note, size: 16, color: Colors.blueGrey),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text('原因: ${item.reason}',
-                            style: const TextStyle(color: Colors.black87),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis
-                        ),
-                      ),
-                    ],
+                    child: Text(
+                      item.shift,
+                      style: TextStyle(fontSize: 11, color: Colors.indigo.shade900, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const CircleAvatar(
-                    backgroundColor: Colors.green,
-                    radius: 14,
-                    child: Icon(Icons.check, color: Colors.white, size: 16),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
+                      const SizedBox(width: 5),
+                      Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87, fontSize: 13)),
+                    ],
                   ),
-                  onPressed: () => _approveSingle(item),
-                ),
-                IconButton(
-                  icon: const CircleAvatar(
-                    backgroundColor: Colors.red,
-                    radius: 14,
-                    child: Icon(Icons.close, color: Colors.white, size: 16),
+                  if (item.reason.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.edit_note, size: 14, color: Colors.blueGrey),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text('原因: ${item.reason}',
+                              style: const TextStyle(color: Colors.black54, fontSize: 12),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: const CircleAvatar(backgroundColor: Colors.green, radius: 18, child: Icon(Icons.check, color: Colors.white, size: 20)),
+                    onPressed: () => _approveSingle(item),
                   ),
-                  onPressed: () => _rejectSingle(item),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: const CircleAvatar(backgroundColor: Colors.red, radius: 18, child: Icon(Icons.close, color: Colors.white, size: 20)),
+                    onPressed: () => _rejectSingle(item),
+                  ),
+                ],
+              ),
             ),
           ),
         );

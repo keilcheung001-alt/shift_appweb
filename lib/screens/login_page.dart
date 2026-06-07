@@ -1,7 +1,9 @@
+// lib/screens/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:permission_handler/permission_handler.dart'; // 記得加呢個 import
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shift_app/constants/constants.dart';
+import 'package:shift_app/services/quota_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -27,10 +29,9 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     _loadSettings();
-    _requestNotificationPermission(); // 自動請求權限
+    _requestNotificationPermission();
   }
 
-  // 權限請求邏輯
   Future<void> _requestNotificationPermission() async {
     var status = await Permission.notification.status;
     if (!status.isGranted) {
@@ -76,6 +77,14 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString(SPK_LOGIN_GROUP, selectedGroup);
     await prefs.setString(SPK_PERMISSION_CODE, roleCode);
     await prefs.setInt(SPK_LOGIN_TIMESTAMP, DateTime.now().millisecondsSinceEpoch);
+
+    // 自動建立或獲取員工假期戶口（傳入姓名和隊伍）
+    final quota = await QuotaService.getOrCreateQuota(
+      rawStaffId,
+      name: rawName,
+      team: homeGroup,
+    );
+    debugPrint('✅ 假期戶口已準備: ${quota['name']} (${quota['staffId']}) AL=${quota['al']}, CL=${quota['cl']}, SL=${quota['sl']}');
 
     _showMessage('✅ 登入成功！');
 

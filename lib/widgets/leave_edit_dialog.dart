@@ -1,7 +1,13 @@
+// lib/widgets/leave_edit_dialog.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // 引入網頁端事實判斷工具
-import '../services/google_sheets_service.dart'; // 引入試算表服務
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/google_sheets_service.dart';
+import '../services/quota_service.dart';
+import '../services/compensatory_time_service.dart';
+import '../utils/auth_util.dart';
+import '../constants/constants.dart';
 
 class LeaveEditDialogResult {
   final bool isCancelled;
@@ -21,10 +27,10 @@ class LeaveEditDialog extends StatefulWidget {
   final List<int> initDays;
   final String myName;
   final String myNickname;
-  final Set<String> publicHolidays; // yyyy-MM-dd
-  final List<String> cycle; // 28 日循環，例如 ['','M','M',...]
+  final Set<String> publicHolidays;
+  final List<String> cycle;
   final DateTime cycleStart;
-  final VoidCallback? onCancelMyPending; // 可選：由 FullCalendar 傳入，真實取消 pending leave
+  final VoidCallback? onCancelMyPending;
 
   const LeaveEditDialog({
     super.key,
@@ -55,20 +61,27 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
   final List<TextEditingController> daysCtrls =
   List.generate(rowCount, (_) => TextEditingController(text: '1'));
 
-  final List<FocusNode> nameFocus =
-  List.generate(rowCount, (_) => FocusNode());
-  final List<FocusNode> reasonFocus =
-  List.generate(rowCount, (_) => FocusNode());
-  final List<FocusNode> daysFocus =
-  List.generate(rowCount, (_) => FocusNode());
+  final List<TextEditingController> compTimeCtrls =
+  List.generate(rowCount, (_) => TextEditingController(text: '0'));
+  final List<bool> useCompTime = List.generate(rowCount, (_) => false);
+
+  final List<FocusNode> nameFocus = List.generate(rowCount, (_) => FocusNode());
+  final List<FocusNode> reasonFocus = List.generate(rowCount, (_) => FocusNode());
+  final List<FocusNode> daysFocus = List.generate(rowCount, (_) => FocusNode());
+  final List<FocusNode> compFocus = List.generate(rowCount, (_) => FocusNode());
 
   final List<String> leaveTypes = ['AL', 'CL', 'SL', 'TR'];
   late List<String> typeSelected;
+
+  double _compBalance = 0.0;
+  String _staffId = '';
+  Map<String, dynamic>? _quota;
 
   @override
   void initState() {
     super.initState();
     typeSelected = List<String>.filled(rowCount, leaveTypes.first);
+    _loadData();
 
     for (int i = 0; i < rowCount; i++) {
       if (i < widget.initNames.length) {
@@ -83,26 +96,23 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     }
   }
 
+  Future<void> _loadData() async {
+    _staffId = await AuthUtil.getStaffId();
+    _compBalance = await CompensatoryTimeService.getBalance(_staffId);
+    _quota = await QuotaService.getCurrentQuota(_staffId);
+    setState(() {});
+  }
+
   @override
   void dispose() {
-    for (final c in nameCtrls) {
-      c.dispose();
-    }
-    for (final c in reasonCtrls) {
-      c.dispose();
-    }
-    for (final c in daysCtrls) {
-      c.dispose();
-    }
-    for (final f in nameFocus) {
-      f.dispose();
-    }
-    for (final f in reasonFocus) {
-      f.dispose();
-    }
-    for (final f in daysFocus) {
-      f.dispose();
-    }
+    for (final c in nameCtrls) c.dispose();
+    for (final c in reasonCtrls) c.dispose();
+    for (final c in daysCtrls) c.dispose();
+    for (final c in compTimeCtrls) c.dispose();
+    for (final f in nameFocus) f.dispose();
+    for (final f in reasonFocus) f.dispose();
+    for (final f in daysFocus) f.dispose();
+    for (final f in compFocus) f.dispose();
     super.dispose();
   }
 
@@ -120,6 +130,53 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     return widget.cycle[idx];
   }
 
+  double getWorkHoursForShift(String shift) {
+    switch (shift) {
+      case 'M': return 8.0;
+      case 'LM': return 12.0;
+      case 'A': return 7.0;
+      case 'N': return 9.0;
+      case 'LN': return 12.0;
+      default: return 8.0;
+    }
+  }
+
+  Map<String, dynamic> calculateDeduction({
+    required String shift,
+    required double requestedDays,
+    required double compHoursUsed,
+    required String leaveType,
+  }) {
+    final workHoursPerDay = getWorkHoursForShift(shift);
+    final totalHoursNeeded = workHoursPerDay * requestedDays;
+
+    final compUsed = compHoursUsed.clamp(0, totalHoursNeeded);
+    final remainingHours = totalHoursNeeded - compUsed;
+
+    const Set<String> longShifts = {'LM', 'LN'};
+    final isLongShift = longShifts.contains(shift);
+
+    double alClDays = 0;
+    if (remainingHours > 0) {
+      if (leaveType == 'SL') {
+        alClDays = remainingHours / 8.0;
+      } else if (isLongShift) {
+        alClDays = (remainingHours / 8.0) * 1.5;
+      } else {
+        alClDays = remainingHours / 8.0;
+      }
+    }
+
+    return {
+      'workHoursPerDay': workHoursPerDay,
+      'totalHoursNeeded': totalHoursNeeded,
+      'compUsed': compUsed,
+      'remainingHours': remainingHours,
+      'deductDays': alClDays,
+      'isLongShift': isLongShift,
+    };
+  }
+
   void focusRow(int row, int col) {
     if (!mounted) return;
     switch (col) {
@@ -132,13 +189,16 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       case 2:
         FocusScope.of(context).requestFocus(daysFocus[row]);
         break;
+      case 3:
+        FocusScope.of(context).requestFocus(compFocus[row]);
+        break;
     }
   }
 
   void nextField(int row, int col) {
     int r = row;
     int c = col + 1;
-    if (c > 2) {
+    if (c > 3) {
       r++;
       c = 0;
     }
@@ -150,19 +210,13 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
   }
 
   Future<void> _onSave() async {
-    // 1. 基本驗證：有名就要有原因
     bool hasAnyRow = false;
-    bool missingReason = false;
-
     for (int i = 0; i < rowCount; i++) {
       final name = nameCtrls[i].text.trim();
-      final reason = reasonCtrls[i].text.trim();
       final days = int.tryParse(daysCtrls[i].text.trim()) ?? 0;
-
-      if (name.isEmpty || days <= 0) continue;
-      hasAnyRow = true;
-      if (reason.isEmpty) {
-        missingReason = true;
+      if (name.isNotEmpty && days > 0) {
+        hasAnyRow = true;
+        break;
       }
     }
 
@@ -173,31 +227,26 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       return;
     }
 
-    if (missingReason) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('有填姓名嘅行必須填寫原因')),
-      );
-      return;
-    }
-
-    final Map<String, List<String>> namesByDate = {};
-    final Map<String, List<String>> nicknamesByDate = {};
-    final Map<String, List<String>> reasonsByDate = {};
+    final Map<String, Map<String, dynamic>> planByDate = {};
+    final List<Map<String, dynamic>> deductionItems = [];
 
     for (int i = 0; i < rowCount; i++) {
       final name = nameCtrls[i].text.trim();
-      var reason = reasonCtrls[i].text.trim();
+      final reason = reasonCtrls[i].text.trim();
       final days = int.tryParse(daysCtrls[i].text.trim()) ?? 0;
-      if (name.isEmpty || days <= 0) continue;
+      final compHours = double.tryParse(compTimeCtrls[i].text.trim()) ?? 0;
+      final useComp = useCompTime[i];
 
-      final type = typeSelected[i];
+      if (name.isEmpty || days <= 0) continue;
 
       if (reason.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('請填寫原因，不可以留空')),
+          const SnackBar(content: Text('請填寫原因')),
         );
         return;
       }
+
+      final type = typeSelected[i];
 
       int used = 0;
       int offset = 0;
@@ -214,105 +263,293 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         }
 
         final dk = dateKey(target);
-        namesByDate.putIfAbsent(dk, () => <String>[]);
-        nicknamesByDate.putIfAbsent(dk, () => <String>[]);
-        reasonsByDate.putIfAbsent(dk, () => <String>[]);
 
-        namesByDate[dk]!.add(name);
-        final nickname = (name == widget.myName) ? widget.myNickname : '';
-        nicknamesByDate[dk]!.add(nickname);
-        reasonsByDate[dk]!.add(reason);
+        if (!planByDate.containsKey(dk)) {
+          planByDate[dk] = {
+            'names': <String>[],
+            'nicknames': <String>[],
+            'reasons': <String>[],
+            'compHours': <double>[],
+            'shifts': <String>[],
+            'leaveTypes': <String>[],
+          };
+        }
+
+        planByDate[dk]!['names']!.add(name);
+        planByDate[dk]!['nicknames']!.add(name == widget.myName ? widget.myNickname : '');
+        planByDate[dk]!['reasons']!.add(reason);
+        planByDate[dk]!['compHours']!.add(useComp ? compHours / days : 0);
+        planByDate[dk]!['shifts']!.add(shift);
+        planByDate[dk]!['leaveTypes']!.add(type);
+
+        deductionItems.add({
+          'shift': shift,
+          'leaveType': type,
+          'compHours': useComp ? compHours / days : 0,
+        });
 
         used++;
       }
     }
 
-    if (namesByDate.isEmpty) {
+    if (planByDate.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('計算結果為空，可能全部都係休息日且係年假')),
+        const SnackBar(content: Text('無效嘅請假申請')),
       );
       return;
     }
 
-    final Map<String, Map<String, dynamic>> planByDate = {};
-    namesByDate.forEach((dk, names) {
-      planByDate[dk] = {
-        'names': names,
-        'nicknames': nicknamesByDate[dk] ?? [],
-        'reasons': reasonsByDate[dk] ?? List<String>.filled(names.length, ''),
-      };
-    });
+    double totalCompUsed = 0;
+    double totalALDays = 0;
+    double totalCLDays = 0;
+    double totalSLDays = 0;
 
-    // -------------------------------------------------------------------------
-    // 【網頁端極速並行保底上傳通道】
-    // -------------------------------------------------------------------------
-    if (kIsWeb) {
-      // 顯示加載圈圈
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+    for (final item in deductionItems) {
+      final calc = calculateDeduction(
+        shift: item['shift'],
+        requestedDays: 1,
+        compHoursUsed: item['compHours'],
+        leaveType: item['leaveType'],
       );
+      totalCompUsed += calc['compUsed'];
+      final deductDays = calc['deductDays'];
 
-      try {
-        String detectedTeam = 'A'; // 預設值
+      switch (item['leaveType']) {
+        case 'AL': totalALDays += deductDays; break;
+        case 'CL': totalCLDays += deductDays; break;
+        case 'SL': totalSLDays += deductDays; break;
+      }
+    }
 
-        // 收集所有需要提交的請求 Future，準備進行非同步並行發送
-        final List<Future<Map<String, dynamic>>> uploadFutures = [];
+    // ✅ 修正：用安全的空值處理
+    bool hasWarning = false;
+    if (_quota != null) {
+      final currentAL = (_quota!['al'] as num?)?.toDouble() ?? 0.0;
+      final currentCL = (_quota!['cl'] as num?)?.toDouble() ?? 0.0;
+      final currentSL = (_quota!['sl'] as num?)?.toDouble() ?? 0.0;
 
-        for (var entry in planByDate.entries) {
-          final dk = entry.key;
-          final names = entry.value['names'] as List<String>;
-          final nicknames = entry.value['nicknames'] as List<String>;
-          final reasons = entry.value['reasons'] as List<String>;
+      if (totalALDays > currentAL) hasWarning = true;
+      if (totalCLDays > currentCL) hasWarning = true;
+      if (totalSLDays > currentSL) hasWarning = true;
+    }
 
-          for (int idx = 0; idx < names.length; idx++) {
-            // 將每個發送請求加入列表，暫不 await
-            uploadFutures.add(
-              GoogleSheetsService.submitLeaveWithForcedFallback(
-                team: detectedTeam,
-                userName: names[idx],
-                nickname: nicknames[idx],
-                employeeId: '',
-                positionCode: '',
-                dateKey: dk,
-                reason: reasons[idx],
-                days: 1.0,
-                status: 'pending',
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('請假扣減確認'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('👤 員工: ${widget.myName}'),
+              Text('📅 日期: ${DateFormat('yyyy-MM-dd').format(widget.day)}'),
+              const Divider(),
+              Text('💰 補鐘餘額: ${_compBalance.toStringAsFixed(1)} 小時'),
+              Text('🔻 使用補鐘: ${totalCompUsed.toStringAsFixed(1)} 小時'),
+              Text('📊 補鐘剩餘: ${(_compBalance - totalCompUsed).toStringAsFixed(1)} 小時'),
+              const Divider(),
+              if (totalALDays > 0)
+                Text('🏖️ 將扣 AL: ${totalALDays.toStringAsFixed(1)} 日',
+                    style: const TextStyle(color: Colors.blue)),
+              if (totalCLDays > 0)
+                Text('🏢 將扣 CL: ${totalCLDays.toStringAsFixed(1)} 日',
+                    style: const TextStyle(color: Colors.orange)),
+              if (totalSLDays > 0)
+                Text('🤒 將扣 SL: ${totalSLDays.toStringAsFixed(1)} 日',
+                    style: const TextStyle(color: Colors.green)),
+              if (hasWarning) ...[
+                const Divider(),
+                const Text('⚠️ 警告：假期配額可能不足，仍會繼續處理',
+                    style: TextStyle(color: Colors.red, fontSize: 12)),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                '💡 長班 (LM/LN) 1日 = 1.5日',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
-            );
+              Text(
+                '💡 病假 1日 = 8小時',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('確認請假'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (totalCompUsed > 0) {
+      await CompensatoryTimeService.deductCompTime(_staffId, totalCompUsed);
+    }
+
+    if (totalALDays > 0) {
+      await QuotaService.deductLeave(
+        staffId: _staffId,
+        leaveType: 'al',
+        days: totalALDays,
+        reason: '請假',
+      );
+    }
+    if (totalCLDays > 0) {
+      await QuotaService.deductLeave(
+        staffId: _staffId,
+        leaveType: 'cl',
+        days: totalCLDays,
+        reason: '請假',
+      );
+    }
+    if (totalSLDays > 0) {
+      await QuotaService.deductLeave(
+        staffId: _staffId,
+        leaveType: 'sl',
+        days: totalSLDays,
+        reason: '請假',
+      );
+    }
+
+    final team = await AuthUtil.getHomeGroup();
+    final collection = FIRESTORE_LEAVE_COLLECTIONS[team] ?? 'a_team_leave';
+    final col = FirebaseFirestore.instance.collection(collection);
+
+    for (final entry in planByDate.entries) {
+      final dateKeyStr = entry.key;
+      final payload = entry.value;
+      final List<String> newNames = payload['names'];
+      final List<String> newReasons = payload['reasons'];
+      final List<String> newNicknames = payload['nicknames'];
+      final List<double> newCompHours = payload['compHours'];
+      final List<String> newShifts = payload['shifts'];
+
+      final docRef = col.doc(dateKeyStr);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snap = await transaction.get(docRef);
+        List<String> oldNames = [];
+        List<String> oldNicknames = [];
+        List<String> oldReasons = [];
+        List<String> oldStatuses = [];
+        List<String> oldStaffIds = [];
+        List<double> oldCompHours = [];
+        List<String> oldShifts = [];
+
+        if (snap.exists) {
+          final data = snap.data()!;
+          oldNames = List<String>.from(data['names'] ?? []);
+          oldNicknames = List<String>.from(data['nicknames'] ?? []);
+          oldReasons = List<String>.from(data['reasons'] ?? []);
+          oldStatuses = List<String>.from(data['statuses'] ?? []);
+          oldStaffIds = List<String>.from(data['staffIds'] ?? []);
+          oldCompHours = (data['compHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+          oldShifts = List<String>.from(data['shifts'] ?? []);
+        }
+
+        for (int i = 0; i < newNames.length; i++) {
+          final name = newNames[i];
+          if (name.isEmpty) continue;
+
+          final idx = oldNames.indexOf(name);
+          if (idx == -1) {
+            oldNames.add(name);
+            oldNicknames.add(newNicknames[i]);
+            oldReasons.add(newReasons[i]);
+            oldStatuses.add('pending');
+            oldStaffIds.add(name == widget.myName ? _staffId : '');
+            oldCompHours.add(newCompHours[i]);
+            oldShifts.add(newShifts[i]);
+          } else {
+            if (newReasons[i].isNotEmpty) oldReasons[idx] = newReasons[i];
+            oldCompHours[idx] = (oldCompHours[idx] ?? 0) + newCompHours[i];
           }
         }
 
-        // 使用 Future.wait 同時發射所有請求，大幅減少多天請假造成的延遲！
-        final List<Map<String, dynamic>> results = await Future.wait(uploadFutures);
+        while (oldNicknames.length < oldNames.length) oldNicknames.add('');
+        while (oldReasons.length < oldNames.length) oldReasons.add('');
+        while (oldStatuses.length < oldNames.length) oldStatuses.add('pending');
+        while (oldStaffIds.length < oldNames.length) oldStaffIds.add('');
+        while (oldCompHours.length < oldNames.length) oldCompHours.add(0);
+        while (oldShifts.length < oldNames.length) oldShifts.add('');
 
-        if (!mounted) return;
-        Navigator.of(context).pop(); // 關閉進度條
+        final hasApproved = oldStatuses.contains('approved');
+        final hasPending = oldStatuses.contains('pending');
+        String overallStatus = 'pending';
+        if (hasApproved && !hasPending) {
+          overallStatus = 'approved';
+        } else if (hasApproved && hasPending) {
+          overallStatus = 'partial';
+        }
 
-        // 檢查是否有任何一筆失敗
-        final bool anyFailure = results.any((res) => res['success'] != true);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(anyFailure ? '部分數據提交可能未完全成功，請重新整理確認。' : '網頁端數據已極速保底同步！'),
-            backgroundColor: anyFailure ? Colors.orange : Colors.green,
-          ),
+        transaction.set(
+          docRef,
+          {
+            'dateKey': dateKeyStr,
+            'date': Timestamp.fromDate(DateTime.parse(dateKeyStr)),
+            'shift': shiftForDate(DateTime.parse(dateKeyStr)),
+            'names': oldNames,
+            'nicknames': oldNicknames,
+            'reasons': oldReasons,
+            'staffIds': oldStaffIds,
+            'statuses': oldStatuses,
+            'compHours': oldCompHours,
+            'shifts': oldShifts,
+            'status': overallStatus,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
         );
-      } catch (webErr) {
-        if (!mounted) return;
-        Navigator.of(context).pop(); // 關閉進度條
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('網頁連線異常: $webErr'), backgroundColor: Colors.red),
+      });
+
+      for (int i = 0; i < newNames.length; i++) {
+        final person = newNames[i];
+        if (person.isEmpty) continue;
+        final isSelf = person == widget.myName;
+        await GoogleSheetsService.uploadLeaveRecord(
+          team: team,
+          userName: person,
+          nickname: isSelf ? widget.myNickname : '',
+          employeeId: isSelf ? _staffId : '',
+          positionCode: '',
+          dateKey: dateKeyStr,
+          reason: newReasons[i],
+          days: 1.0,
+          status: 'pending',
         );
       }
     }
 
+    if (widget.onCancelMyPending != null) {
+      widget.onCancelMyPending!();
+    }
+
     if (!mounted) return;
-    // 返回結果給本地 UI 更新
-    Navigator.of(context).pop(
-      LeaveEditDialogResult(isCancelled: false, planByDate: planByDate),
+
+    String deductMsg = '';
+    if (totalALDays > 0) deductMsg += 'AL ${totalALDays.toStringAsFixed(1)}日 ';
+    if (totalCLDays > 0) deductMsg += 'CL ${totalCLDays.toStringAsFixed(1)}日 ';
+    if (totalSLDays > 0) deductMsg += 'SL ${totalSLDays.toStringAsFixed(1)}日 ';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✅ 已提交請假，扣減: $deductMsg'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
     );
+
+    if (mounted) {
+      Navigator.of(context).pop(
+        LeaveEditDialogResult(isCancelled: false, planByDate: planByDate),
+      );
+    }
   }
 
   @override
@@ -324,13 +561,12 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 600),
+        constraints: const BoxConstraints(maxHeight: 650),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               child: Row(
                 children: [
                   const Icon(Icons.event, color: Colors.blue),
@@ -338,17 +574,24 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                   Expanded(
                     child: Text(
                       titleText,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '補鐘: ${_compBalance.toStringAsFixed(1)}h',
+                      style: TextStyle(fontSize: 12, color: Colors.teal.shade800),
                     ),
                   ),
                 ],
               ),
             ),
             const Divider(height: 1),
-
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(12),
@@ -370,11 +613,9 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                 radius: 20,
                                 backgroundColor: Colors.blue,
                                 child: IconButton(
-                                  icon: const Icon(Icons.person,
-                                      color: Colors.white),
+                                  icon: const Icon(Icons.person, color: Colors.white),
                                   padding: EdgeInsets.zero,
-                                  onPressed: (widget.myName.isEmpty &&
-                                      widget.myNickname.isEmpty)
+                                  onPressed: (widget.myName.isEmpty && widget.myNickname.isEmpty)
                                       ? null
                                       : () {
                                     final toFill = widget.myName.isNotEmpty
@@ -382,7 +623,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                         : widget.myNickname;
                                     setState(() {
                                       nameCtrls[i].text = toFill;
-                                      // ⭐ 已修正：正確格式化 TextSelection.fromPosition 語法
                                       nameCtrls[i].selection =
                                           TextSelection.fromPosition(
                                             TextPosition(offset: toFill.length),
@@ -408,26 +648,29 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                               ),
                               const SizedBox(width: 8),
                               IconButton(
-                                icon: const Icon(Icons.delete,
-                                    color: Colors.red),
+                                icon: const Icon(Icons.delete, color: Colors.red),
                                 onPressed: () async {
                                   if (widget.onCancelMyPending != null &&
-                                      nameCtrls[i].text.trim() ==
-                                          widget.myName) {
-                                    Navigator.of(context).pop(
-                                      LeaveEditDialogResult(
-                                        isCancelled: true,
-                                        planByDate: const {},
-                                      ),
-                                    );
-                                    widget.onCancelMyPending!.call();
+                                      nameCtrls[i].text.trim() == widget.myName) {
+                                    if (mounted) {
+                                      Navigator.of(context).pop(
+                                        LeaveEditDialogResult(
+                                          isCancelled: true,
+                                          planByDate: const {},
+                                        ),
+                                      );
+                                    }
+                                    if (widget.onCancelMyPending != null) {
+                                      widget.onCancelMyPending!();
+                                    }
                                     return;
                                   }
-
                                   setState(() {
                                     nameCtrls[i].clear();
                                     reasonCtrls[i].clear();
                                     daysCtrls[i].text = '1';
+                                    compTimeCtrls[i].text = '0';
+                                    useCompTime[i] = false;
                                   });
                                 },
                               ),
@@ -437,16 +680,14 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                           Row(
                             children: [
                               SizedBox(
-                                width: 90,
+                                width: 80,
                                 child: DropdownButtonFormField<String>(
                                   value: typeSelected[i],
                                   items: leaveTypes
-                                      .map(
-                                        (t) => DropdownMenuItem(
-                                      value: t,
-                                      child: Text(t),
-                                    ),
-                                  )
+                                      .map((t) => DropdownMenuItem(
+                                    value: t,
+                                    child: Text(t),
+                                  ))
                                       .toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
@@ -465,8 +706,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                         case 'TR':
                                           reasonCtrls[i].text = 'Training';
                                           break;
-                                        default:
-                                          reasonCtrls[i].text = '';
                                       }
                                       focusRow(i, 1);
                                     });
@@ -510,6 +749,40 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: useCompTime[i],
+                                onChanged: (value) {
+                                  setState(() {
+                                    useCompTime[i] = value ?? false;
+                                    if (!useCompTime[i]) {
+                                      compTimeCtrls[i].text = '0';
+                                    }
+                                  });
+                                },
+                              ),
+                              const Text('用補鐘', style: TextStyle(fontSize: 12)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: compTimeCtrls[i],
+                                  focusNode: compFocus[i],
+                                  keyboardType: TextInputType.number,
+                                  enabled: useCompTime[i],
+                                  decoration: InputDecoration(
+                                    labelText: '補鐘時數',
+                                    hintText: '最多 ${_compBalance.toStringAsFixed(1)}',
+                                    isDense: true,
+                                    border: const OutlineInputBorder(),
+                                    suffixText: '小時',
+                                  ),
+                                  onSubmitted: (_) => nextField(i, 3),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     );
@@ -517,28 +790,24 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                 ),
               ),
             ),
-
             const Divider(height: 1),
-
             Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.close, color: Colors.red),
-                      label: const Text(
-                        '取消',
-                        style: TextStyle(color: Colors.red),
-                      ),
+                      label: const Text('取消', style: TextStyle(color: Colors.red)),
                       onPressed: () {
-                        Navigator.of(context).pop(
-                          LeaveEditDialogResult(
-                            isCancelled: true,
-                            planByDate: const {},
-                          ),
-                        );
+                        if (mounted) {
+                          Navigator.of(context).pop(
+                            LeaveEditDialogResult(
+                              isCancelled: true,
+                              planByDate: const {},
+                            ),
+                          );
+                        }
                       },
                     ),
                   ),
