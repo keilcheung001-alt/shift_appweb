@@ -21,6 +21,7 @@ class PendingLeaveItem {
   final int days;
   final String status;
   final int index;
+  final String shift; // ✅ 儲存動態計算後的班次
 
   PendingLeaveItem({
     required this.docId,
@@ -32,6 +33,7 @@ class PendingLeaveItem {
     required this.days,
     required this.status,
     required this.index,
+    required this.shift,
   });
 }
 
@@ -124,6 +126,48 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     }
   }
 
+  // ✅ 核心輔助方法：從該隊伍的 config_cycle 讀取動態設定並計算正確班次
+  Future<String> _getDynamicShiftForDate(String team, String dateStr) async {
+    try {
+      final collectionName = _getCollectionName(team);
+      final configDoc = await FirebaseFirestore.instance
+          .collection(collectionName)
+          .doc('config_cycle')
+          .get();
+
+      List<String> cycle = ['M', 'M', 'A', 'A', 'N', 'N', '', ''];
+      DateTime cycleStart = DateTime(2026, 1, 1);
+
+      if (configDoc.exists && configDoc.data() != null) {
+        final data = configDoc.data()!;
+        if (data['cycle'] != null) {
+          cycle = List<String>.from(data['cycle']);
+        }
+        if (data['cycleStart'] != null) {
+          if (data['cycleStart'] is Timestamp) {
+            cycleStart = (data['cycleStart'] as Timestamp).toDate();
+          } else if (data['cycleStart'] is String) {
+            cycleStart = DateTime.parse(data['cycleStart']);
+          }
+        }
+      }
+
+      final targetDate = DateTime.parse(dateStr);
+      final d0 = DateTime(targetDate.year, targetDate.month, targetDate.day);
+      final base = DateTime(cycleStart.year, cycleStart.month, cycleStart.day);
+      final diff = d0.difference(base).inDays;
+
+      if (diff < 0 || cycle.isEmpty) return '未知班次';
+      final idx = diff % cycle.length;
+      final shiftCode = cycle[idx].trim().toUpperCase();
+
+      if (shiftCode.isEmpty) return '休息日';
+      return '$shiftCode 更';
+    } catch (e) {
+      return '未知班次';
+    }
+  }
+
   Future<void> _loadPendingItemsForTeam(String team) async {
     if (!_isSuperAdmin && team != _homeGroup) {
       return;
@@ -138,6 +182,8 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       final items = <PendingLeaveItem>[];
 
       for (final doc in snapshot.docs) {
+        if (doc.id == 'config_cycle' || doc.id == 'config_sheets') continue; // 跳過設定檔
+
         final data = doc.data();
         final dateKey = data['dateKey'] as String? ?? doc.id;
         final names = (data['names'] as List<dynamic>?)?.cast<String>() ?? [];
@@ -148,6 +194,9 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         if (statuses.length != names.length) {
           statuses = List.filled(names.length, 'pending');
         }
+
+        // 根據對應隊伍與日期，動態獲取班次
+        final computedShift = await _getDynamicShiftForDate(team, dateKey);
 
         for (int i = 0; i < names.length; i++) {
           final status = (i < statuses.length) ? statuses[i] : 'pending';
@@ -162,6 +211,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
               days: 1,
               status: status,
               index: i,
+              shift: computedShift,
             ));
           }
         }
@@ -264,10 +314,13 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     }
     final prefs = await SharedPreferences.getInstance();
     final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
+
+    // ✅ 核心修正：將班次資料完美格式化串接到 WhatsApp 批量訊息中
     final itemsList = items.map((item) {
       final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
-      return '👤 $displayName - ${item.dateKey} (${item.reason.isNotEmpty ? item.reason : '無'})';
+      return '👤 $displayName - ${item.dateKey} [${item.shift}] (${item.reason.isNotEmpty ? item.reason : '無'})';
     }).join('\n');
+
     final message = '✅ 批量批准請假\n\n👥 隊伍: $team 隊\n\n$itemsList\n\n🔍 審批人: $approverNickname';
     await Clipboard.setData(ClipboardData(text: message));
     _showInfoDialog('訊息已複製到剪貼簿，請手動貼上到 WhatsApp 群組');
@@ -301,9 +354,6 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final data = docSnap.data()!;
         final names = List<String>.from(data['names'] ?? []);
         final statuses = List<String>.from(data['statuses'] ?? List.filled(names.length, 'pending'));
-        final reasons = List<String>.from(data['reasons'] ?? List.filled(names.length, ''));
-        final nicknames = List<String>.from(data['nicknames'] ?? List.filled(names.length, ''));
-        final staffIds = List<String>.from(data['staffIds'] ?? List.filled(names.length, ''));
 
         if (item.index >= 0 && item.index < names.length) {
           statuses[item.index] = newStatus;
@@ -373,7 +423,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     await _sendRejectWhatsAppToGroup(item);
   }
 
-  /// 批准 WhatsApp 通知（群組）
+  /// 批准 WhatsApp 通知
   Future<void> _sendApproveWhatsApp(PendingLeaveItem item) async {
     try {
       final groupLink = await WhatsAppGroups.getLinkForTeam(item.team);
@@ -385,10 +435,12 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
       final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
 
+      // ✅ 核心修正：單個批准通知訊息加入正確動態班次
       final message = '✅ 已核准請假\n\n'
           '👥 隊伍: ${item.team} 隊\n'
           '👤 員工: $displayName\n'
           '📅 日期: ${item.dateKey}\n'
+          '⏰ 當天班次: ${item.shift}\n'
           '📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n'
           '🔍 審批人: $approverNickname';
 
@@ -404,7 +456,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     }
   }
 
-  /// 拒絕 WhatsApp 通知（群組）
+  /// 拒絕 WhatsApp 通知
   Future<void> _sendRejectWhatsAppToGroup(PendingLeaveItem item) async {
     try {
       final groupLink = await WhatsAppGroups.getLinkForTeam(item.team);
@@ -416,10 +468,12 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
       final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
 
+      // ✅ 核心修正：單個拒絕通知訊息加入正確動態班次
       final message = '❌ 已拒絕請假\n\n'
           '👥 隊伍: ${item.team} 隊\n'
           '👤 員工: $displayName\n'
           '📅 日期: ${item.dateKey}\n'
+          '⏰ 當天班次: ${item.shift}\n'
           '📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n'
           '🔍 審批人: $approverNickname';
 
@@ -551,10 +605,24 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
                     const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
                     const SizedBox(width: 4),
                     Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87)),
+                    const SizedBox(width: 12),
+                    // ✅ UI 修正：直接在日期右側加入顯眼的橘色班次標籤
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade100,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.orange.shade300),
+                      ),
+                      child: Text(
+                        item.shift,
+                        style: TextStyle(fontSize: 11, color: Colors.orange.shade900, fontWeight: FontWeight.bold),
+                      ),
+                    ),
                   ],
                 ),
                 if (item.reason.isNotEmpty) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       const Icon(Icons.edit_note, size: 16, color: Colors.blueGrey),
