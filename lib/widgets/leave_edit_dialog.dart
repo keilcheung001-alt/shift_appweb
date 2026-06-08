@@ -70,7 +70,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
   final List<FocusNode> daysFocus = List.generate(rowCount, (_) => FocusNode());
   final List<FocusNode> compFocus = List.generate(rowCount, (_) => FocusNode());
 
-  // 🆕 加入「補鐘」選項
   final List<String> leaveTypes = ['AL', 'CL', 'SL', 'TR', '補鐘'];
   late List<String> typeSelected;
 
@@ -142,27 +141,27 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     }
   }
 
-  /// 🎯 核心扣減邏輯
+  /// 🎯 核心扣減邏輯（完整修正版）
   Map<String, dynamic> calculateDeduction({
     required String shift,
     required double requestedDays,
     required double compHoursUsed,
     required String leaveType,
   }) {
-    final workHoursPerDay = getWorkHoursForShift(shift);
-    final totalHoursNeeded = workHoursPerDay * requestedDays;
+    // 基礎時數定義（只喺用補鐘時需要）
+    double workHoursPerDay = 8.0;
+    switch (shift) {
+      case 'M': workHoursPerDay = 8.0; break;
+      case 'LM': workHoursPerDay = 12.0; break;
+      case 'A': workHoursPerDay = 7.0; break;
+      case 'N': workHoursPerDay = 9.0; break;
+      case 'LN': workHoursPerDay = 12.0; break;
+      default: workHoursPerDay = 8.0; break;
+    }
 
-    final compUsed = compHoursUsed.clamp(0, totalHoursNeeded);
-    final remainingHours = totalHoursNeeded - compUsed;
-
-    const Set<String> longShifts = {'LM', 'LN'};
-    final isLongShift = longShifts.contains(shift);
-
-    double alDays = 0.0;
-    double clDays = 0.0;
-    double slDays = 0.0;
-
-    if (remainingHours <= 0) {
+    // 補鐘類型：只扣補鐘
+    if (leaveType == '補鐘') {
+      final compUsed = compHoursUsed.clamp(0, workHoursPerDay * requestedDays);
       return {
         'compUsed': compUsed,
         'alDays': 0.0,
@@ -171,38 +170,68 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       };
     }
 
-    switch (leaveType) {
-      case 'AL':
-        if (isLongShift) {
-          alDays = (remainingHours / 8.0) * 1.5;
-        } else {
-          alDays = remainingHours / 8.0;
-        }
-        break;
+    // TR（Training）：完全不扣
+    if (leaveType == 'TR') {
+      return {
+        'compUsed': 0.0,
+        'alDays': 0.0,
+        'clDays': 0.0,
+        'slDays': 0.0,
+      };
+    }
 
-      case 'CL':
-        if (isLongShift) {
+    final totalHoursNeeded = workHoursPerDay * requestedDays;
+    final compUsed = compHoursUsed.clamp(0, totalHoursNeeded);
+    final remainingHours = totalHoursNeeded - compUsed;
+
+    double alDays = 0.0;
+    double clDays = 0.0;
+    double slDays = 0.0;
+
+    // 關鍵：如果冇用補鐘（compHoursUsed == 0），就直接按日數扣，唔經小時換算
+    if (compHoursUsed == 0) {
+      // 冇補鐘：直接按日扣（整數）
+      switch (leaveType) {
+        case 'AL':
+          alDays = (shift == 'LM' || shift == 'LN') ? requestedDays * 1.5 : requestedDays;
+          break;
+        case 'CL':
           clDays = 1.0;
-          final remainingAfterCL = remainingHours - 8.0;
-          if (remainingAfterCL > 0) {
-            alDays = remainingAfterCL / 8.0;
+          if ((shift == 'LM' || shift == 'LN') && requestedDays > 1) {
+            alDays = (requestedDays - 1);
           }
-        } else {
+          break;
+        case 'SL':
+          slDays = requestedDays;
+          break;
+      }
+    } else {
+      // 有用補鐘：先扣補鐘，剩餘小時換算日數（可能出現小數）
+      if (remainingHours <= 0) {
+        return {
+          'compUsed': compUsed,
+          'alDays': 0.0,
+          'clDays': 0.0,
+          'slDays': 0.0,
+        };
+      }
+
+      switch (leaveType) {
+        case 'AL':
+          alDays = (shift == 'LM' || shift == 'LN')
+              ? (remainingHours / 8.0) * 1.5
+              : (remainingHours / 8.0);
+          break;
+        case 'CL':
           clDays = 1.0;
-        }
-        break;
-
-      case 'SL':
-        slDays = remainingHours / 8.0;
-        break;
-
-      case '補鐘':
-      // 揀「補鐘」類型時，只扣補鐘，唔扣 AL/CL/SL
-        break;
-
-      default:
-        alDays = remainingHours / 8.0;
-        break;
+          if (remainingHours > 8.0) {
+            alDays = (remainingHours - 8.0) / 8.0;
+          }
+          break;
+        case 'SL':
+          slDays = remainingHours / 8.0;
+          break;
+      }
     }
 
     return {
@@ -339,8 +368,17 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     double totalALDays = 0;
     double totalCLDays = 0;
     double totalSLDays = 0;
+    double totalCompOverflow = 0;
 
     for (final item in deductionItems) {
+      final workHoursPerDay = getWorkHoursForShift(item['shift']);
+      final totalHoursNeeded = workHoursPerDay * 1;
+      final compRequested = item['compHours'];
+
+      if (compRequested > totalHoursNeeded) {
+        totalCompOverflow += (compRequested - totalHoursNeeded);
+      }
+
       final calc = calculateDeduction(
         shift: item['shift'],
         requestedDays: 1,
@@ -351,6 +389,40 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
       totalALDays += calc['alDays'];
       totalCLDays += calc['clDays'];
       totalSLDays += calc['slDays'];
+    }
+
+    // 補鐘溢位警告
+    if (totalCompOverflow > 0) {
+      final confirmOverflow = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('⚠️ 補鐘溢位警告'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('你輸入嘅補鐘時數超出實際需要：'),
+              const SizedBox(height: 8),
+              Text(
+                '📊 超出時數：${totalCompOverflow.toStringAsFixed(1)} 小時',
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
+              ),
+              const SizedBox(height: 8),
+              Text('⚠️ 超出嘅部分將唔會被扣減，亦唔會退還。'),
+              Text('💡 建議：補鐘時數唔應該超過當日工時。'),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('返回修改')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              child: const Text('繼續提交'),
+            ),
+          ],
+        ),
+      );
+      if (confirmOverflow == false) return;
     }
 
     bool hasWarning = false;
@@ -535,7 +607,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                       ),
                       child: Column(
                         children: [
-                          // 第一行：姓名 + 刪除
                           Row(
                             children: [
                               CircleAvatar(
@@ -606,7 +677,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          // 第二行：類型（🆕 加入「補鐘」選項）+ 原因 + 日數
                           Row(
                             children: [
                               SizedBox(
@@ -683,7 +753,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          // 第三行：補鐘選項（只負責計數，唔會改原因欄）
                           Row(
                             children: [
                               Checkbox(
