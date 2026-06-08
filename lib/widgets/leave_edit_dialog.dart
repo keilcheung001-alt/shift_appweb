@@ -70,7 +70,8 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
   final List<FocusNode> daysFocus = List.generate(rowCount, (_) => FocusNode());
   final List<FocusNode> compFocus = List.generate(rowCount, (_) => FocusNode());
 
-  final List<String> leaveTypes = ['AL', 'CL', 'SL', 'TR'];
+  // 🆕 加入「補鐘」選項
+  final List<String> leaveTypes = ['AL', 'CL', 'SL', 'TR', '補鐘'];
   late List<String> typeSelected;
 
   double _compBalance = 0.0;
@@ -141,30 +142,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     }
   }
 
-  /// 🆕 自動填入補鐘原因
-  void _autoFillReason(int row) {
-    if (useCompTime[row]) {
-      final hours = compTimeCtrls[row].text.trim();
-      if (hours.isNotEmpty && double.tryParse(hours) != null) {
-        final numHours = double.parse(hours);
-        if (numHours > 0) {
-          final autoText = '補鐘 $hours 小時';
-          final currentReason = reasonCtrls[row].text.trim();
-          if (currentReason.isEmpty || currentReason.startsWith('補鐘')) {
-            reasonCtrls[row].text = autoText;
-          }
-        }
-      }
-    } else {
-      // 取消補鐘時，如果原因欄係自動填嘅「補鐘...」，就清空
-      final currentReason = reasonCtrls[row].text.trim();
-      if (currentReason.startsWith('補鐘')) {
-        reasonCtrls[row].text = '';
-      }
-    }
-  }
-
-  /// 🎯 核心扣減邏輯（已修正長班 CL）
+  /// 🎯 核心扣減邏輯
   Map<String, dynamic> calculateDeduction({
     required String shift,
     required double requestedDays,
@@ -196,31 +174,30 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     switch (leaveType) {
       case 'AL':
         if (isLongShift) {
-          // 長班 AL：1 日 = 1.5 日
           alDays = (remainingHours / 8.0) * 1.5;
         } else {
-          // 正常班 AL：1 日 = 1 日
           alDays = remainingHours / 8.0;
         }
         break;
 
       case 'CL':
         if (isLongShift) {
-          // 🆕 長班 CL：扣 1 日 CL，剩餘時數轉 AL
           clDays = 1.0;
           final remainingAfterCL = remainingHours - 8.0;
           if (remainingAfterCL > 0) {
             alDays = remainingAfterCL / 8.0;
           }
         } else {
-          // 正常班 CL：1 日 = 1 日
           clDays = 1.0;
         }
         break;
 
       case 'SL':
-      // 病假：1 日 = 8 小時
         slDays = remainingHours / 8.0;
+        break;
+
+      case '補鐘':
+      // 揀「補鐘」類型時，只扣補鐘，唔扣 AL/CL/SL
         break;
 
       default:
@@ -426,6 +403,10 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                 '💡 病假 1日 = 8小時',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
+              Text(
+                '💡 補鐘類型只扣補鐘，唔扣 AL/CL/SL',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
             ],
           ),
         ),
@@ -625,7 +606,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          // 第二行：類型 + 原因 + 日數
+                          // 第二行：類型（🆕 加入「補鐘」選項）+ 原因 + 日數
                           Row(
                             children: [
                               SizedBox(
@@ -654,6 +635,9 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                           break;
                                         case 'TR':
                                           reasonCtrls[i].text = 'Training';
+                                          break;
+                                        case '補鐘':
+                                          reasonCtrls[i].text = '補鐘';
                                           break;
                                       }
                                       focusRow(i, 1);
@@ -699,7 +683,7 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          // 第三行：補鐘選項（🆕 已加入自動填原因）
+                          // 第三行：補鐘選項（只負責計數，唔會改原因欄）
                           Row(
                             children: [
                               Checkbox(
@@ -710,7 +694,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                     if (!useCompTime[i]) {
                                       compTimeCtrls[i].text = '0';
                                     }
-                                    _autoFillReason(i);
                                   });
                                 },
                               ),
@@ -729,7 +712,6 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                     border: const OutlineInputBorder(),
                                     suffixText: '小時',
                                   ),
-                                  onChanged: (_) => _autoFillReason(i),
                                   onSubmitted: (_) => nextField(i, 3),
                                 ),
                               ),
