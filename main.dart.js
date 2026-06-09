@@ -30027,7 +30027,7 @@ k=(j==null?$.aB=$.c1():j).bU("[DEFAULT]")
 A.bu(k,l,!0)
 s=7
 return A.h(A.cH(new A.bN(k)).kq(new A.ahZ(n,b,a,d),t.a),$async$hQ)
-case 7:A.bj().$1("\u2705 \u6263\u6e1b\u5047\u671f: "+d+" "+b+" -"+A.k(a))
+case 7:A.bj().$1("\u2705 \u6263\u6e1b\u5047\u671f: "+d+" "+b+" -"+A.k(a)+" \u65e5")
 q=!0
 s=1
 break
