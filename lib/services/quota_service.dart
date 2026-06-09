@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 class QuotaService {
   static const String collectionName = 'user_quotas';
 
-  /// 獲取或自動建立員工配額（包含姓名和隊伍）
   static Future<Map<String, dynamic>> getOrCreateQuota(
       String staffId, {
         String? name,
@@ -59,7 +58,6 @@ class QuotaService {
     }
   }
 
-  /// 檢查並執行年度/月度更新
   static Future<void> _checkYearlyUpdate(String staffId, Map<String, dynamic> currentData) async {
     final now = DateTime.now();
     final lastYear = currentData['lastUpdatedYear'] ?? now.year;
@@ -93,7 +91,6 @@ class QuotaService {
     }
   }
 
-  /// 獲取預設配額
   static Map<String, dynamic> _getDefaultQuota() {
     return {
       'al': 10.0,
@@ -103,7 +100,6 @@ class QuotaService {
     };
   }
 
-  /// 獲取員工補鐘餘額（從 Firestore）
   static Future<double> getCompBalance(String staffId) async {
     try {
       final doc = await FirebaseFirestore.instance.collection(collectionName).doc(staffId).get();
@@ -117,7 +113,6 @@ class QuotaService {
     }
   }
 
-  /// 獲取員工當前配額
   static Future<Map<String, dynamic>?> getCurrentQuota(String staffId) async {
     try {
       final doc = await FirebaseFirestore.instance.collection(collectionName).doc(staffId).get();
@@ -131,7 +126,7 @@ class QuotaService {
     }
   }
 
-  /// 扣減假期
+  // ✅ 扣減假期：CL 直接扣 days，唔再轉乘 0.1
   static Future<bool> deductLeave({
     required String staffId,
     required String leaveType,
@@ -167,7 +162,7 @@ class QuotaService {
         }
       });
 
-      debugPrint('✅ 扣減假期: $staffId $leaveType -$days');
+      debugPrint('✅ 扣減假期: $staffId $leaveType -$days 日');
       return true;
     } catch (e) {
       debugPrint('扣減假期失敗: $e');
@@ -175,7 +170,7 @@ class QuotaService {
     }
   }
 
-  /// 增加假期（取消請假時退回）
+  // ✅ 退回假期：CL 直接加 days，唔再轉乘 0.1
   static Future<bool> addLeave({
     required String staffId,
     required String leaveType,
@@ -217,7 +212,6 @@ class QuotaService {
     }
   }
 
-  /// 增加補鐘（OT 累積）
   static Future<bool> addCompTime({
     required String staffId,
     required double hours,
@@ -257,7 +251,6 @@ class QuotaService {
     }
   }
 
-  /// 扣減補鐘（請假用）
   static Future<bool> deductCompTime({
     required String staffId,
     required double hours,
@@ -297,7 +290,6 @@ class QuotaService {
     }
   }
 
-  /// 管理員更新配額
   static Future<bool> updateQuota({
     required String staffId,
     double? al,
@@ -324,7 +316,6 @@ class QuotaService {
     }
   }
 
-  /// 獲取員工配額（Stream，實時更新）
   static Stream<DocumentSnapshot> streamQuota(String staffId) {
     return FirebaseFirestore.instance.collection(collectionName).doc(staffId).snapshots();
   }
