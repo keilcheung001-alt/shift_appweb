@@ -6,7 +6,6 @@ import 'screens/login_page.dart';
 import 'pages/team_menu_page.dart';
 import 'pages/approval_page.dart';
 import 'pages/holidays_page.dart';
-import 'pages/google_sheets_config_page.dart';
 import 'pages/whatsapp_config_page.dart';
 
 void main() async {
@@ -43,7 +42,6 @@ class TempoLeaveApp extends StatelessWidget {
         ROUTE_TEAM_MENU: (context) => const TeamMenuPage(),
         ROUTE_APPROVAL: (context) => const ApprovalPage(),
         ROUTE_HOLIDAYS: (context) => const HolidaysPage(),
-        ROUTE_GOOGLE_SHEETS_CONFIG: (context) => const GoogleSheetsConfigPage(),
         ROUTE_WHATSAPP_CONFIG: (context) => const WhatsAppConfigPage(),
       },
     );

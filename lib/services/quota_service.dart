@@ -1,7 +1,6 @@
 // lib/services/quota_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class QuotaService {
   static const String collectionName = 'user_quotas';
@@ -17,9 +16,7 @@ class QuotaService {
       final doc = await docRef.get();
 
       if (doc.exists) {
-        // 有記錄，檢查是否需要年度更新
         await _checkYearlyUpdate(staffId, doc.data()!);
-        // 如果有新嘅姓名/隊伍，順便更新
         final currentData = doc.data()!;
         final Map<String, dynamic> updates = {};
         if (name != null && name.isNotEmpty && currentData['name'] != name) {
@@ -35,9 +32,7 @@ class QuotaService {
         final updatedDoc = await docRef.get();
         return updatedDoc.data()!;
       } else {
-        // 冇記錄就自動建立（用預設值）
         final defaultQuota = _getDefaultQuota();
-
         final now = DateTime.now();
         final newQuota = {
           'staffId': staffId,
@@ -54,10 +49,8 @@ class QuotaService {
           'updatedAt': FieldValue.serverTimestamp(),
           'isAutoCreated': true,
         };
-
         await docRef.set(newQuota);
-        debugPrint('✅ 自動建立員工配額: $staffId ($name, $team) | AL=${defaultQuota['al']}, CL=${defaultQuota['cl']}, SL=${defaultQuota['sl']}');
-
+        debugPrint('✅ 自動建立員工配額: $staffId ($name, $team)');
         return newQuota;
       }
     } catch (e) {
@@ -74,7 +67,6 @@ class QuotaService {
 
     final Map<String, dynamic> updates = {};
 
-    // 年度更新（每年1月1日）
     if (now.year > lastYear && now.month == 1 && now.day == 1) {
       updates['al'] = (currentData['al'] as num?)?.toDouble() ?? 0.0 + 15.0;
       updates['cl'] = (currentData['cl'] as num?)?.toDouble() ?? 0.0 + 17.0;
@@ -82,7 +74,6 @@ class QuotaService {
       debugPrint('📅 年度更新: $staffId  AL+15, CL+17');
     }
 
-    // 月度更新（病假每月+4，上限120）
     if (now.year > lastYear || now.month > lastMonth) {
       final monthsPassed = (now.year - lastYear) * 12 + (now.month - lastMonth);
       if (monthsPassed > 0) {
@@ -92,17 +83,13 @@ class QuotaService {
         updates['sl'] = newSL;
         updates['lastUpdatedMonth'] = now.month;
         if (now.year > lastYear) updates['lastUpdatedYear'] = now.year;
-        debugPrint('📅 月度更新: $staffId  病假 +${monthsPassed * 4} (現為 $newSL)');
+        debugPrint('📅 月度更新: $staffId  病假 +${monthsPassed * 4}');
       }
     }
 
-    // 執行更新
     if (updates.isNotEmpty) {
       updates['updatedAt'] = FieldValue.serverTimestamp();
-      await FirebaseFirestore.instance
-          .collection(collectionName)
-          .doc(staffId)
-          .update(updates);
+      await FirebaseFirestore.instance.collection(collectionName).doc(staffId).update(updates);
     }
   }
 
@@ -116,13 +103,32 @@ class QuotaService {
     };
   }
 
-  /// 檢查假期係咪足夠（測試階段全部夠）
-  static Future<bool> hasEnoughLeave({
-    required String staffId,
-    required String leaveType,
-    required double daysNeeded,
-  }) async {
-    return true;
+  /// 獲取員工補鐘餘額（從 Firestore）
+  static Future<double> getCompBalance(String staffId) async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection(collectionName).doc(staffId).get();
+      if (doc.exists) {
+        return (doc.data()?['compTime'] as num?)?.toDouble() ?? 0.0;
+      }
+      return 0.0;
+    } catch (e) {
+      debugPrint('獲取補鐘餘額失敗: $e');
+      return 0.0;
+    }
+  }
+
+  /// 獲取員工當前配額
+  static Future<Map<String, dynamic>?> getCurrentQuota(String staffId) async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection(collectionName).doc(staffId).get();
+      if (doc.exists) {
+        return doc.data();
+      }
+      return null;
+    } catch (e) {
+      debugPrint('獲取配額失敗: $e');
+      return null;
+    }
   }
 
   /// 扣減假期
@@ -140,30 +146,22 @@ class QuotaService {
 
         if (!doc.exists) {
           final defaultQuota = _getDefaultQuota();
-          final newQuota = {
+          final newValue = (defaultQuota[leaveType] as num).toDouble() - days;
+          transaction.set(docRef, {
             'staffId': staffId,
-            'al': defaultQuota['al'],
-            'cl': defaultQuota['cl'],
-            'sl': defaultQuota['sl'],
+            'al': leaveType == 'al' ? newValue : defaultQuota['al'],
+            'cl': leaveType == 'cl' ? newValue : defaultQuota['cl'],
+            'sl': leaveType == 'sl' ? newValue : defaultQuota['sl'],
             'compTime': 0.0,
             'year': DateTime.now().year,
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
-          };
-          transaction.set(docRef, newQuota);
-
-          final newValue = (defaultQuota[leaveType] as num).toDouble() - days;
-          transaction.update(docRef, {
-            leaveType: newValue,
-            'updatedAt': FieldValue.serverTimestamp(),
           });
         } else {
-          final current = doc.data()!;
-          final currentValue = (current[leaveType] as num?)?.toDouble() ?? 0.0;
+          final currentValue = (doc.data()?[leaveType] as num?)?.toDouble() ?? 0.0;
           final newValue = currentValue - days;
-
           transaction.update(docRef, {
-            leaveType: newValue,
+            leaveType: newValue < 0 ? 0 : newValue,
             'updatedAt': FieldValue.serverTimestamp(),
           });
         }
@@ -172,15 +170,17 @@ class QuotaService {
       debugPrint('✅ 扣減假期: $staffId $leaveType -$days');
       return true;
     } catch (e) {
-      debugPrint('扣減假期失敗: $e，但繼續處理請假');
-      return true;
+      debugPrint('扣減假期失敗: $e');
+      return false;
     }
   }
 
-  /// 扣減補鐘
-  static Future<bool> deductCompTime({
+  /// 增加假期（取消請假時退回）
+  static Future<bool> addLeave({
     required String staffId,
-    required double hours,
+    required String leaveType,
+    required double days,
+    required String reason,
   }) async {
     try {
       final docRef = FirebaseFirestore.instance.collection(collectionName).doc(staffId);
@@ -190,33 +190,34 @@ class QuotaService {
 
         if (!doc.exists) {
           final defaultQuota = _getDefaultQuota();
+          final newValue = (defaultQuota[leaveType] as num).toDouble() + days;
           transaction.set(docRef, {
             'staffId': staffId,
-            'al': defaultQuota['al'],
-            'cl': defaultQuota['cl'],
-            'sl': defaultQuota['sl'],
-            'compTime': 0.0 - hours,
+            'al': leaveType == 'al' ? newValue : defaultQuota['al'],
+            'cl': leaveType == 'cl' ? newValue : defaultQuota['cl'],
+            'sl': leaveType == 'sl' ? newValue : defaultQuota['sl'],
+            'compTime': 0.0,
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
         } else {
-          final current = doc.data()!;
-          final currentComp = (current['compTime'] as num?)?.toDouble() ?? 0.0;
+          final currentValue = (doc.data()?[leaveType] as num?)?.toDouble() ?? 0.0;
           transaction.update(docRef, {
-            'compTime': currentComp - hours,
+            leaveType: currentValue + days,
             'updatedAt': FieldValue.serverTimestamp(),
           });
         }
       });
 
+      debugPrint('✅ 退回假期: $staffId $leaveType +$days 日');
       return true;
     } catch (e) {
-      debugPrint('扣減補鐘失敗: $e');
-      return true;
+      debugPrint('退回假期失敗: $e');
+      return false;
     }
   }
 
-  /// 增加補鐘
+  /// 增加補鐘（OT 累積）
   static Future<bool> addCompTime({
     required String staffId,
     required double hours,
@@ -240,8 +241,7 @@ class QuotaService {
             'updatedAt': FieldValue.serverTimestamp(),
           });
         } else {
-          final current = doc.data()!;
-          final currentComp = (current['compTime'] as num?)?.toDouble() ?? 0.0;
+          final currentComp = (doc.data()?['compTime'] as num?)?.toDouble() ?? 0.0;
           transaction.update(docRef, {
             'compTime': currentComp + hours,
             'updatedAt': FieldValue.serverTimestamp(),
@@ -249,6 +249,7 @@ class QuotaService {
         }
       });
 
+      debugPrint('✅ 增加補鐘: $staffId +$hours 小時');
       return true;
     } catch (e) {
       debugPrint('增加補鐘失敗: $e');
@@ -256,12 +257,44 @@ class QuotaService {
     }
   }
 
-  /// 獲取員工配額（Stream，實時更新）
-  static Stream<DocumentSnapshot> streamQuota(String staffId) {
-    return FirebaseFirestore.instance
-        .collection(collectionName)
-        .doc(staffId)
-        .snapshots();
+  /// 扣減補鐘（請假用）
+  static Future<bool> deductCompTime({
+    required String staffId,
+    required double hours,
+  }) async {
+    try {
+      final docRef = FirebaseFirestore.instance.collection(collectionName).doc(staffId);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final doc = await transaction.get(docRef);
+
+        if (!doc.exists) {
+          final defaultQuota = _getDefaultQuota();
+          transaction.set(docRef, {
+            'staffId': staffId,
+            'al': defaultQuota['al'],
+            'cl': defaultQuota['cl'],
+            'sl': defaultQuota['sl'],
+            'compTime': -hours,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          final currentComp = (doc.data()?['compTime'] as num?)?.toDouble() ?? 0.0;
+          final newComp = currentComp - hours;
+          transaction.update(docRef, {
+            'compTime': newComp < 0 ? 0 : newComp,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
+
+      debugPrint('✅ 扣減補鐘: $staffId -$hours 小時');
+      return true;
+    } catch (e) {
+      debugPrint('扣減補鐘失敗: $e');
+      return false;
+    }
   }
 
   /// 管理員更新配額
@@ -283,11 +316,7 @@ class QuotaService {
       if (sl != null) updateData['sl'] = sl;
       if (compTime != null) updateData['compTime'] = compTime;
 
-      await FirebaseFirestore.instance
-          .collection(collectionName)
-          .doc(staffId)
-          .update(updateData);
-
+      await FirebaseFirestore.instance.collection(collectionName).doc(staffId).update(updateData);
       return true;
     } catch (e) {
       debugPrint('更新配額失敗: $e');
@@ -295,21 +324,8 @@ class QuotaService {
     }
   }
 
-  /// 獲取員工當前配額
-  static Future<Map<String, dynamic>?> getCurrentQuota(String staffId) async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection(collectionName)
-          .doc(staffId)
-          .get();
-
-      if (doc.exists) {
-        return doc.data();
-      }
-      return null;
-    } catch (e) {
-      debugPrint('獲取配額失敗: $e');
-      return null;
-    }
+  /// 獲取員工配額（Stream，實時更新）
+  static Stream<DocumentSnapshot> streamQuota(String staffId) {
+    return FirebaseFirestore.instance.collection(collectionName).doc(staffId).snapshots();
   }
 }

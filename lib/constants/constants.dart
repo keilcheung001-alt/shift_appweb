@@ -115,8 +115,7 @@ const Map<String, List<String>> TEAM_CYCLES = {
   'D': ['LN', 'LN', '', '', 'M', 'M', 'A', '', '', 'N', 'N', '', '', 'M', 'LM', 'LM', 'A', 'A', 'N', 'N', '', '', '', 'M', 'M', 'A', 'A', 'N'],
 };
 
-// ========== 直接使用你文件入面嘅四條 URL（已填好）==========
-
+// ========== Apps Script URL（Firestore backup 用）==========
 const String APPS_SCRIPT_URL_A_TEAM = 'https://script.google.com/macros/s/AKfycbzXbDmtHNiv71P1SW3r5-Fm4WICcmTfEZUwfGWlHarrFw19OrWpgMYkQTIF88cV3CgS/exec';
 const String APPS_SCRIPT_URL_B_TEAM = 'https://script.google.com/macros/s/AKfycbzPvr-4frfwm8m-IpFM4j_WN3vT1FZTi_Mc-Evu_08iH1C4fBEjYGd6byBMwrlzwmEnoA/exec';
 const String APPS_SCRIPT_URL_C_TEAM = 'https://script.google.com/macros/s/AKfycbxhFexwsKjPB_MoPZakG_eVfBfoRbrnZbTQOWtELYHh2U3MRDpFxG1pVH182kGUkfkx/exec';
@@ -126,6 +125,19 @@ const Map<String, String> APPS_SCRIPT_URLS = {
   'B': APPS_SCRIPT_URL_B_TEAM,
   'C': APPS_SCRIPT_URL_C_TEAM,
   'D': APPS_SCRIPT_URL_D_TEAM,
+};
+
+// ========== Google Sheets Backup 連結（俾人查閱記錄用）==========
+const String BACKUP_SHEET_A = 'https://docs.google.com/spreadsheets/d/1LtiT5eYWlbZDsNg76eb84yvCtnbXPCEGE4XLRpMciv8/edit';
+const String BACKUP_SHEET_B = 'https://docs.google.com/spreadsheets/d/1xs2D56WFEvxqpKpf-WSOdUy66v8sMA51jYL2-WKwQ_g/edit';
+const String BACKUP_SHEET_C = 'https://docs.google.com/spreadsheets/d/1xg9ak1s-HXNRchw16RFmjLdI7VAvvMN2xTvyXJ_RBOI/edit';
+const String BACKUP_SHEET_D = 'https://docs.google.com/spreadsheets/d/1T3Nrebz8DMyEfgfh7jvAywHe7Cx_Jnm9QWC0t7xw-tg/edit';
+
+const Map<String, String> BACKUP_SHEET_URLS = {
+  'A': BACKUP_SHEET_A,
+  'B': BACKUP_SHEET_B,
+  'C': BACKUP_SHEET_C,
+  'D': BACKUP_SHEET_D,
 };
 
 // 路由常數

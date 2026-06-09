@@ -22,6 +22,7 @@ class PendingLeaveItem {
   final String status;
   final int index;
   final String shift;
+  final double compHours;
 
   PendingLeaveItem({
     required this.docId,
@@ -34,6 +35,7 @@ class PendingLeaveItem {
     required this.status,
     required this.index,
     required this.shift,
+    required this.compHours,
   });
 }
 
@@ -148,6 +150,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final nicknames = (data['nicknames'] as List<dynamic>?)?.cast<String>() ?? [];
         final reasons = (data['reasons'] as List<dynamic>?)?.cast<String>() ?? [];
         List<String> statuses = (data['statuses'] as List<dynamic>?)?.cast<String>() ?? [];
+        final compHoursList = (data['compHours'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList() ?? [];
 
         final rawShift = data['shift'] as String? ?? '';
         String displayShift = '未知班次';
@@ -164,6 +167,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         for (int i = 0; i < names.length; i++) {
           final status = (i < statuses.length) ? statuses[i] : 'pending';
           if (status == 'pending') {
+            final compHours = i < compHoursList.length ? compHoursList[i] : 0.0;
             items.add(PendingLeaveItem(
               docId: doc.id,
               dateKey: dateKey,
@@ -175,6 +179,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
               status: status,
               index: i,
               shift: displayShift,
+              compHours: compHours,
             ));
           }
         }
@@ -280,7 +285,11 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
 
     final itemsList = items.map((item) {
       final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
-      return '👤 $displayName - ${item.dateKey} [${item.shift}] (${item.reason.isNotEmpty ? item.reason : '無'})';
+      String reasonText = item.reason.isNotEmpty ? item.reason : '無';
+      if (item.compHours > 0) {
+        reasonText = '$reasonText + ${item.compHours.toStringAsFixed(1)}h 補鐘';
+      }
+      return '👤 $displayName - ${item.dateKey} [${item.shift}] ($reasonText)';
     }).join('\n');
 
     final message = '✅ 批量批准請假\n\n👥 隊伍: $team 隊\n\n$itemsList\n\n🔍 審批人: $approverNickname';
@@ -392,12 +401,17 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
       final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
 
+      String reasonText = item.reason.isNotEmpty ? item.reason : '無';
+      if (item.compHours > 0) {
+        reasonText = '$reasonText + ${item.compHours.toStringAsFixed(1)}h 補鐘';
+      }
+
       final message = '✅ 已核准請假\n\n'
           '👥 隊伍: ${item.team} 隊\n'
           '👤 員工: $displayName\n'
           '📅 日期: ${item.dateKey}\n'
           '⏰ 當天班次: ${item.shift}\n'
-          '📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n'
+          '📝 原因: $reasonText\n'
           '🔍 審批人: $approverNickname';
 
       await Clipboard.setData(ClipboardData(text: message));
@@ -426,12 +440,17 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       final approverNickname = prefs.getString(SPK_NICKNAME) ?? '管理員';
       final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
 
+      String reasonText = item.reason.isNotEmpty ? item.reason : '無';
+      if (item.compHours > 0) {
+        reasonText = '$reasonText + ${item.compHours.toStringAsFixed(1)}h 補鐘';
+      }
+
       final message = '❌ 已拒絕請假\n\n'
           '👥 隊伍: ${item.team} 隊\n'
           '👤 員工: $displayName\n'
           '📅 日期: ${item.dateKey}\n'
           '⏰ 當天班次: ${item.shift}\n'
-          '📝 原因: ${item.reason.isNotEmpty ? item.reason : '無'}\n'
+          '📝 原因: $reasonText\n'
           '🔍 審批人: $approverNickname';
 
       await Clipboard.setData(ClipboardData(text: message));
@@ -550,12 +569,17 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         final itemId = '${item.docId}_${item.index}';
         final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
 
+        String reasonText = item.reason.isNotEmpty ? item.reason : '無';
+        if (item.compHours > 0) {
+          reasonText = '$reasonText + ${item.compHours.toStringAsFixed(1)}h 補鐘';
+        }
+
         return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),  // ✅ 加大上下邊距
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),  // ✅ 加大內距
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
             child: ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               leading: Checkbox(
@@ -565,19 +589,25 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
               title: Row(
                 children: [
                   Expanded(
-                    child: Text(displayName,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    child: Text(
+                      displayName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  const SizedBox(width: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    constraints: const BoxConstraints(maxWidth: 70),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.indigo.shade50,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.indigo.shade200),
+                      borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       item.shift,
-                      style: TextStyle(fontSize: 11, color: Colors.indigo.shade900, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 10, color: Colors.indigo, fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                   ),
                 ],
@@ -585,25 +615,26 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
-                      const Icon(Icons.calendar_today, size: 14, color: Colors.blueGrey),
-                      const SizedBox(width: 5),
-                      Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87, fontSize: 13)),
+                      const Icon(Icons.calendar_today, size: 12, color: Colors.blueGrey),
+                      const SizedBox(width: 4),
+                      Text('日期: ${item.dateKey}', style: const TextStyle(color: Colors.black87, fontSize: 12)),
                     ],
                   ),
-                  if (item.reason.isNotEmpty) ...[
-                    const SizedBox(height: 6),
+                  if (reasonText.isNotEmpty) ...[
+                    const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.edit_note, size: 14, color: Colors.blueGrey),
-                        const SizedBox(width: 5),
+                        const Icon(Icons.edit_note, size: 12, color: Colors.blueGrey),
+                        const SizedBox(width: 4),
                         Expanded(
-                          child: Text('原因: ${item.reason}',
-                              style: const TextStyle(color: Colors.black54, fontSize: 12),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis
+                          child: Text(
+                            '原因: $reasonText',
+                            style: const TextStyle(color: Colors.black54, fontSize: 11),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -616,15 +647,15 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
                 children: [
                   IconButton(
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: const CircleAvatar(backgroundColor: Colors.green, radius: 18, child: Icon(Icons.check, color: Colors.white, size: 20)),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: const CircleAvatar(backgroundColor: Colors.green, radius: 16, child: Icon(Icons.check, color: Colors.white, size: 18)),
                     onPressed: () => _approveSingle(item),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 6),
                   IconButton(
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: const CircleAvatar(backgroundColor: Colors.red, radius: 18, child: Icon(Icons.close, color: Colors.white, size: 20)),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: const CircleAvatar(backgroundColor: Colors.red, radius: 16, child: Icon(Icons.close, color: Colors.white, size: 18)),
                     onPressed: () => _rejectSingle(item),
                   ),
                 ],

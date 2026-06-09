@@ -8,9 +8,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/constants.dart';
 import '../widgets/leave_edit_dialog.dart';
-import '../services/google_sheets_service.dart';
+
+import '../services/quota_service.dart';
 import '../utils/widget_snapshot_writer.dart';
 import '../services/leave_delete_service.dart';
+
 
 class FullCalendarDTeam extends StatefulWidget {
   final String staffId;
@@ -219,14 +221,17 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final List<dynamic> nicknames = data['nicknames'] != null ? List<dynamic>.from(data['nicknames']) : <dynamic>[];
         final List<dynamic> reasons = data['reasons'] != null ? List<dynamic>.from(data['reasons']) : <dynamic>[];
         final List<dynamic> statuses = data['statuses'] != null ? List<dynamic>.from(data['statuses']) : <dynamic>[];
+        final List<dynamic> compHours = data['compHours'] != null ? List<dynamic>.from(data['compHours']) : <dynamic>[];
         while (nicknames.length < names.length) nicknames.add('');
         while (reasons.length < names.length) reasons.add('');
         while (statuses.length < names.length) statuses.add('pending');
+        while (compHours.length < names.length) compHours.add(0.0);
         leaves[dk] = {
           'names': names,
           'nicknames': nicknames,
           'reasons': reasons,
           'statuses': statuses,
+          'compHours': compHours,
           'shift': data['shift'] ?? '',
         };
       } catch (e) {
@@ -515,6 +520,37 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
     );
 
     if (result == null || result.isCancelled) return;
+
+    // ✅ 先處理扣減（只扣減自己的假期）
+    final deduction = result.deduction;
+    if (deduction != null) {
+      final compUsed = deduction['compUsed'] as double? ?? 0;
+      final alDays = deduction['alDays'] as double? ?? 0;
+      final clDays = deduction['clDays'] as double? ?? 0;
+      final slDays = deduction['slDays'] as double? ?? 0;
+      final personName = deduction['name'] as String? ?? '';
+
+      if (personName == myName && myEmployeeId.isNotEmpty) {
+        if (compUsed > 0) {
+          await QuotaService.deductCompTime(staffId: myEmployeeId, hours: compUsed);
+          debugPrint('✅ 扣減補鐘: $compUsed 小時');
+        }
+        if (alDays > 0) {
+          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'al', days: alDays, reason: '請假');
+          debugPrint('✅ 扣減 AL: $alDays 日');
+        }
+        if (clDays > 0) {
+          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'cl', days: clDays, reason: '請假');
+          debugPrint('✅ 扣減 CL: $clDays 日');
+        }
+        if (slDays > 0) {
+          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'sl', days: slDays, reason: '請假');
+          debugPrint('✅ 扣減 SL: $slDays 日');
+        }
+      }
+    }
+
+    // 然後儲存 Firestore
     final col = FirebaseFirestore.instance.collection(leaveCollection);
     for (final entry in result.planByDate.entries) {
       final dateKeyStr = entry.key;
@@ -529,10 +565,12 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
       final List<String> newNicknames = (payload['nicknames'] as List<dynamic>?)
           ?.map((e) => e.toString())
           .toList() ?? [];
-      final List<int> newDays = (payload['days'] as List<dynamic>?)
-          ?.map((e) => e as int)
+      final List<double> newCompHours = (payload['compHours'] as List<dynamic>?)
+          ?.map((e) => (e as num).toDouble())
           .toList() ?? [];
+
       if (newNames.isEmpty) continue;
+
       final docRef = col.doc(dateKeyStr);
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snap = await transaction.get(docRef);
@@ -541,6 +579,8 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         List<String> oldReasons = [];
         List<String> oldStatuses = [];
         List<String> oldStaffIds = [];
+        List<double> oldCompHours = [];
+
         if (snap.exists) {
           final data = snap.data()!;
           oldNames = List<String>.from(data['names'] ?? []);
@@ -548,7 +588,11 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
           oldReasons = List<String>.from(data['reasons'] ?? []);
           oldStatuses = List<String>.from(data['statuses'] ?? []);
           oldStaffIds = List<String>.from(data['staffIds'] ?? []);
+          oldCompHours = (data['compHours'] as List<dynamic>?)
+              ?.map((e) => (e as num).toDouble())
+              .toList() ?? [];
         }
+
         for (int i = 0; i < newNames.length; i++) {
           final name = newNames[i];
           if (name.isEmpty) continue;
@@ -558,22 +602,31 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
               oldNicknames.add(i < newNicknames.length ? newNicknames[i] : '');
               oldReasons.add(i < newReasons.length ? newReasons[i] : '');
               oldStatuses.add('pending');
-              oldStaffIds.add(name == myName ? widget.staffId : '');
+              oldStaffIds.add(name == myName ? myEmployeeId : '');
+              oldCompHours.add(i < newCompHours.length ? newCompHours[i] : 0);
             }
           } else {
             final idx = oldNames.indexOf(name);
-            if (idx != -1 && i < newReasons.length && newReasons[i].isNotEmpty) {
-              oldReasons[idx] = newReasons[i];
-            }
-            if (idx != -1 && i < newNicknames.length && newNicknames[i].isNotEmpty) {
-              oldNicknames[idx] = newNicknames[i];
+            if (idx != -1) {
+              if (i < newReasons.length && newReasons[i].isNotEmpty) {
+                oldReasons[idx] = newReasons[i];
+              }
+              if (i < newNicknames.length && newNicknames[i].isNotEmpty) {
+                oldNicknames[idx] = newNicknames[i];
+              }
+              if (i < newCompHours.length) {
+                oldCompHours[idx] = newCompHours[i];
+              }
             }
           }
         }
+
         while (oldNicknames.length < oldNames.length) oldNicknames.add('');
         while (oldReasons.length < oldNames.length) oldReasons.add('');
         while (oldStatuses.length < oldNames.length) oldStatuses.add('pending');
         while (oldStaffIds.length < oldNames.length) oldStaffIds.add('');
+        while (oldCompHours.length < oldNames.length) oldCompHours.add(0);
+
         final bool hasApproved = oldStatuses.contains('approved');
         final bool hasPending = oldStatuses.contains('pending');
         String overallStatus = 'pending';
@@ -582,6 +635,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         } else if (hasApproved && hasPending) {
           overallStatus = 'partial';
         }
+
         transaction.set(
           docRef,
           {
@@ -592,6 +646,7 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
             'nicknames': oldNicknames,
             'reasons': oldReasons,
             'staffIds': oldStaffIds,
+            'compHours': oldCompHours,
             'statuses': oldStatuses,
             'status': overallStatus,
             'updatedAt': FieldValue.serverTimestamp(),
@@ -604,21 +659,11 @@ class _FullCalendarDTeamState extends State<FullCalendarDTeam> {
         final person = newNames[i];
         if (person.isEmpty) continue;
         final reason = i < newReasons.length ? newReasons[i] : '';
-        final int days = i < newDays.length ? newDays[i] : 1;
         final bool isSelf = person == myName;
-        await GoogleSheetsService.uploadLeaveRecord(
-          team: widget.teamCode,
-          userName: person,
-          nickname: isSelf ? myNickname : '',
-          employeeId: isSelf ? myEmployeeId : '',
-          positionCode: isSelf ? myJobTitle : '',
-          dateKey: dateKeyStr,
-          reason: reason,
-          days: days.toDouble(),
-          status: 'pending',
-        );
+
       }
     }
+
     await subscribeLeavesForVisibleRange();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

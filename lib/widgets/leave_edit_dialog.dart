@@ -1,21 +1,18 @@
 // lib/widgets/leave_edit_dialog.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/google_sheets_service.dart';
 import '../services/quota_service.dart';
-import '../services/compensatory_time_service.dart';
 import '../utils/auth_util.dart';
-import '../constants/constants.dart';
 
 class LeaveEditDialogResult {
   final bool isCancelled;
   final Map<String, Map<String, dynamic>> planByDate;
+  final Map<String, dynamic>? deduction;
 
   LeaveEditDialogResult({
     required this.isCancelled,
     required this.planByDate,
+    this.deduction,
   });
 }
 
@@ -54,28 +51,22 @@ class LeaveEditDialog extends StatefulWidget {
 class LeaveEditDialogState extends State<LeaveEditDialog> {
   static const int rowCount = 5;
 
-  final List<TextEditingController> nameCtrls =
-  List.generate(rowCount, (_) => TextEditingController());
-  final List<TextEditingController> reasonCtrls =
-  List.generate(rowCount, (_) => TextEditingController());
-  final List<TextEditingController> daysCtrls =
-  List.generate(rowCount, (_) => TextEditingController(text: '1'));
-
-  final List<TextEditingController> compTimeCtrls =
-  List.generate(rowCount, (_) => TextEditingController(text: '0'));
+  final List<TextEditingController> nameCtrls = List.generate(rowCount, (_) => TextEditingController());
+  final List<TextEditingController> reasonCtrls = List.generate(rowCount, (_) => TextEditingController());
+  final List<TextEditingController> daysCtrls = List.generate(rowCount, (_) => TextEditingController(text: '1'));
+  final List<TextEditingController> compTimeCtrls = List.generate(rowCount, (_) => TextEditingController(text: '0.0'));
   final List<bool> useCompTime = List.generate(rowCount, (_) => false);
+  final List<bool> _isSaving = List.generate(rowCount, (_) => false);
 
   final List<FocusNode> nameFocus = List.generate(rowCount, (_) => FocusNode());
   final List<FocusNode> reasonFocus = List.generate(rowCount, (_) => FocusNode());
   final List<FocusNode> daysFocus = List.generate(rowCount, (_) => FocusNode());
-  final List<FocusNode> compFocus = List.generate(rowCount, (_) => FocusNode());
 
   final List<String> leaveTypes = ['AL', 'CL', 'SL', 'TR', '補鐘'];
   late List<String> typeSelected;
 
   double _compBalance = 0.0;
   String _staffId = '';
-  Map<String, dynamic>? _quota;
 
   @override
   void initState() {
@@ -84,50 +75,38 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     _loadData();
 
     for (int i = 0; i < rowCount; i++) {
-      if (i < widget.initNames.length) {
-        nameCtrls[i].text = widget.initNames[i];
-      }
-      if (i < widget.initReasons.length) {
-        reasonCtrls[i].text = widget.initReasons[i];
-      }
-      if (i < widget.initDays.length && widget.initDays[i] > 0) {
-        daysCtrls[i].text = widget.initDays[i].toString();
-      }
+      if (i < widget.initNames.length) nameCtrls[i].text = widget.initNames[i];
+      if (i < widget.initReasons.length) reasonCtrls[i].text = widget.initReasons[i];
+      if (i < widget.initDays.length && widget.initDays[i] > 0) daysCtrls[i].text = widget.initDays[i].toString();
     }
   }
 
   Future<void> _loadData() async {
     _staffId = await AuthUtil.getStaffId();
-    _compBalance = await CompensatoryTimeService.getBalance(_staffId);
-    _quota = await QuotaService.getCurrentQuota(_staffId);
+    _compBalance = await QuotaService.getCompBalance(_staffId);
     setState(() {});
   }
 
   @override
   void dispose() {
-    for (final c in nameCtrls) c.dispose();
-    for (final c in reasonCtrls) c.dispose();
-    for (final c in daysCtrls) c.dispose();
-    for (final c in compTimeCtrls) c.dispose();
-    for (final f in nameFocus) f.dispose();
-    for (final f in reasonFocus) f.dispose();
-    for (final f in daysFocus) f.dispose();
-    for (final f in compFocus) f.dispose();
+    for (var c in nameCtrls) c.dispose();
+    for (var c in reasonCtrls) c.dispose();
+    for (var c in daysCtrls) c.dispose();
+    for (var c in compTimeCtrls) c.dispose();
+    for (var f in nameFocus) f.dispose();
+    for (var f in reasonFocus) f.dispose();
+    for (var f in daysFocus) f.dispose();
     super.dispose();
   }
 
-  String dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String dateKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   String shiftForDate(DateTime date) {
     final d0 = DateTime(date.year, date.month, date.day);
-    final base = DateTime(widget.cycleStart.year, widget.cycleStart.month,
-        widget.cycleStart.day);
+    final base = DateTime(widget.cycleStart.year, widget.cycleStart.month, widget.cycleStart.day);
     final diff = d0.difference(base).inDays;
-    if (diff < 0) return '';
-    if (widget.cycle.isEmpty) return '';
-    final idx = diff % widget.cycle.length;
-    return widget.cycle[idx];
+    if (diff < 0 || widget.cycle.isEmpty) return '';
+    return widget.cycle[diff % widget.cycle.length];
   }
 
   double getWorkHoursForShift(String shift) {
@@ -141,194 +120,138 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     }
   }
 
-  /// 🎯 核心扣減邏輯（完整修正版）
   Map<String, dynamic> calculateDeduction({
     required String shift,
     required double requestedDays,
     required double compHoursUsed,
     required String leaveType,
   }) {
-    // 基礎時數定義（只喺用補鐘時需要）
-    double workHoursPerDay = 8.0;
-    switch (shift) {
-      case 'M': workHoursPerDay = 8.0; break;
-      case 'LM': workHoursPerDay = 12.0; break;
-      case 'A': workHoursPerDay = 7.0; break;
-      case 'N': workHoursPerDay = 9.0; break;
-      case 'LN': workHoursPerDay = 12.0; break;
-      default: workHoursPerDay = 8.0; break;
-    }
-
-    // 補鐘類型：只扣補鐘
-    if (leaveType == '補鐘') {
-      final compUsed = compHoursUsed.clamp(0, workHoursPerDay * requestedDays);
-      return {
-        'compUsed': compUsed,
-        'alDays': 0.0,
-        'clDays': 0.0,
-        'slDays': 0.0,
-      };
-    }
-
-    // TR（Training）：完全不扣
-    if (leaveType == 'TR') {
-      return {
-        'compUsed': 0.0,
-        'alDays': 0.0,
-        'clDays': 0.0,
-        'slDays': 0.0,
-      };
-    }
-
+    final workHoursPerDay = getWorkHoursForShift(shift);
     final totalHoursNeeded = workHoursPerDay * requestedDays;
-    final compUsed = compHoursUsed.clamp(0, totalHoursNeeded);
-    final remainingHours = totalHoursNeeded - compUsed;
 
-    double alDays = 0.0;
-    double clDays = 0.0;
-    double slDays = 0.0;
+    // 補鐘：只扣補鐘
+    if (leaveType == '補鐘') {
+      return {'compUsed': compHoursUsed, 'alDays': 0.0, 'clDays': 0.0, 'slDays': 0.0};
+    }
 
-    // 關鍵：如果冇用補鐘（compHoursUsed == 0），就直接按日數扣，唔經小時換算
-    if (compHoursUsed == 0) {
-      // 冇補鐘：直接按日扣（整數）
-      switch (leaveType) {
-        case 'AL':
-          alDays = (shift == 'LM' || shift == 'LN') ? requestedDays * 1.5 : requestedDays;
-          break;
-        case 'CL':
-          clDays = 1.0;
-          if ((shift == 'LM' || shift == 'LN') && requestedDays > 1) {
-            alDays = (requestedDays - 1);
-          }
-          break;
-        case 'SL':
-          slDays = requestedDays;
-          break;
-      }
-    } else {
-      // 有用補鐘：先扣補鐘，剩餘小時換算日數（可能出現小數）
+    // TR：唔扣任何嘢
+    if (leaveType == 'TR') {
+      return {'compUsed': 0.0, 'alDays': 0.0, 'clDays': 0.0, 'slDays': 0.0};
+    }
+
+    // 有剔補鐘：用小時計算
+    if (compHoursUsed > 0) {
+      final compUsed = compHoursUsed.clamp(0, totalHoursNeeded);
+      final remainingHours = totalHoursNeeded - compUsed;
+
       if (remainingHours <= 0) {
-        return {
-          'compUsed': compUsed,
-          'alDays': 0.0,
-          'clDays': 0.0,
-          'slDays': 0.0,
-        };
+        return {'compUsed': compUsed, 'alDays': 0.0, 'clDays': 0.0, 'slDays': 0.0};
       }
 
-      switch (leaveType) {
-        case 'AL':
-          alDays = (shift == 'LM' || shift == 'LN')
-              ? (remainingHours / 8.0) * 1.5
-              : (remainingHours / 8.0);
-          break;
-        case 'CL':
-          clDays = 1.0;
-          if (remainingHours > 8.0) {
-            alDays = (remainingHours - 8.0) / 8.0;
-          }
-          break;
-        case 'SL':
-          slDays = remainingHours / 8.0;
-          break;
+      if (leaveType == 'AL') {
+        final alDays = remainingHours / 8.0;
+        return {'compUsed': compUsed, 'alDays': alDays, 'clDays': 0.0, 'slDays': 0.0};
+      }
+
+      if (leaveType == 'CL') {
+        // CL 有剔補鐘：先扣補鐘，再扣 CL 日數
+        final clDays = remainingHours / 8.0;
+        return {'compUsed': compUsed, 'alDays': 0.0, 'clDays': clDays, 'slDays': 0.0};
+      }
+
+      if (leaveType == 'SL') {
+        final slDays = remainingHours / 8.0;
+        return {'compUsed': compUsed, 'alDays': 0.0, 'clDays': 0.0, 'slDays': slDays};
       }
     }
 
-    return {
-      'compUsed': compUsed,
-      'alDays': alDays,
-      'clDays': clDays,
-      'slDays': slDays,
-    };
-  }
-
-  void focusRow(int row, int col) {
-    if (!mounted) return;
-    switch (col) {
-      case 0:
-        FocusScope.of(context).requestFocus(nameFocus[row]);
-        break;
-      case 1:
-        FocusScope.of(context).requestFocus(reasonFocus[row]);
-        break;
-      case 2:
-        FocusScope.of(context).requestFocus(daysFocus[row]);
-        break;
-      case 3:
-        FocusScope.of(context).requestFocus(compFocus[row]);
-        break;
-    }
-  }
-
-  void nextField(int row, int col) {
-    int r = row;
-    int c = col + 1;
-    if (c > 3) {
-      r++;
-      c = 0;
-    }
-    if (r >= rowCount) {
-      FocusScope.of(context).unfocus();
-      return;
-    }
-    focusRow(r, c);
-  }
-
-  Future<void> _onSave() async {
-    bool hasAnyRow = false;
-    for (int i = 0; i < rowCount; i++) {
-      final name = nameCtrls[i].text.trim();
-      final days = int.tryParse(daysCtrls[i].text.trim()) ?? 0;
-      if (name.isNotEmpty && days > 0) {
-        hasAnyRow = true;
-        break;
+    // 冇剔補鐘：用日數計算
+    if (leaveType == 'AL') {
+      double alDays = requestedDays;
+      if (shift == 'LM' || shift == 'LN') {
+        alDays = requestedDays * 1.5;
       }
+      return {'compUsed': 0.0, 'alDays': alDays, 'clDays': 0.0, 'slDays': 0.0};
     }
 
-    if (!hasAnyRow) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('請至少輸入一行姓名')),
-      );
-      return;
+    if (leaveType == 'CL') {
+      double clDays = requestedDays;
+      double alDays = 0.0;
+      // 長班（LM/LN）：1日CL + 0.5日AL
+      if ((shift == 'LM' || shift == 'LN') && requestedDays > 0) {
+        alDays = requestedDays * 0.5;
+      }
+      return {'compUsed': 0.0, 'alDays': alDays, 'clDays': clDays, 'slDays': 0.0};
     }
 
-    final Map<String, Map<String, dynamic>> planByDate = {};
-    final List<Map<String, dynamic>> deductionItems = [];
+    if (leaveType == 'SL') {
+      return {'compUsed': 0.0, 'alDays': 0.0, 'clDays': 0.0, 'slDays': requestedDays};
+    }
 
-    for (int i = 0; i < rowCount; i++) {
-      final name = nameCtrls[i].text.trim();
-      final reason = reasonCtrls[i].text.trim();
-      final days = int.tryParse(daysCtrls[i].text.trim()) ?? 0;
-      final compHours = double.tryParse(compTimeCtrls[i].text.trim()) ?? 0;
-      final useComp = useCompTime[i];
+    return {'compUsed': 0.0, 'alDays': 0.0, 'clDays': 0.0, 'slDays': 0.0};
+  }
 
-      if (name.isEmpty || days <= 0) continue;
+  void _showError(String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('⚠️ 請假失敗'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('確定'),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Future<void> _saveRow(int row) async {
+    if (_isSaving[row]) return;
+    setState(() => _isSaving[row] = true);
+
+    try {
+      final name = nameCtrls[row].text.trim();
+      final reason = reasonCtrls[row].text.trim();
+      final days = int.tryParse(daysCtrls[row].text.trim()) ?? 0;
+      final compHoursInput = compTimeCtrls[row].text.trim();
+      final compHours = compHoursInput.isEmpty ? 0.0 : double.tryParse(compHoursInput) ?? 0.0;
+      final useComp = useCompTime[row];
+      final type = typeSelected[row];
+
+      if (name.isEmpty) {
+        _showError('請填寫姓名');
+        setState(() => _isSaving[row] = false);
+        return;
+      }
+      if (days <= 0) {
+        _showError('請填寫日數');
+        setState(() => _isSaving[row] = false);
+        return;
+      }
       if (reason.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('請填寫原因')),
-        );
+        _showError('請填寫原因');
+        setState(() => _isSaving[row] = false);
+        return;
+      }
+      if (useComp && compHours <= 0) {
+        _showError('請輸入補鐘時數');
+        setState(() => _isSaving[row] = false);
         return;
       }
 
-      final type = typeSelected[i];
+      final Map<String, Map<String, dynamic>> planByDate = {};
+      final List<Map<String, dynamic>> deductionItems = [];
 
-      int used = 0;
-      int offset = 0;
-
+      int used = 0, offset = 0;
       while (used < days) {
-        final target = widget.day.add(Duration(days: offset));
-        offset++;
-
+        final target = widget.day.add(Duration(days: offset++));
         final shift = shiftForDate(target);
-        final bool isRestDay = shift.isEmpty;
-
-        if (type == 'AL' && isRestDay) {
-          continue;
-        }
+        // AL 休息日跳過，其他假可以請
+        if (type == 'AL' && shift.isEmpty) continue;
 
         final dk = dateKey(target);
-
         if (!planByDate.containsKey(dk)) {
           planByDate[dk] = {
             'names': <String>[],
@@ -343,220 +266,105 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
         planByDate[dk]!['names']!.add(name);
         planByDate[dk]!['nicknames']!.add(name == widget.myName ? widget.myNickname : '');
         planByDate[dk]!['reasons']!.add(reason);
-        planByDate[dk]!['compHours']!.add(useComp ? compHours / days : 0);
+        // 補鐘：每日扣相同時數
+        planByDate[dk]!['compHours']!.add(useComp ? compHours : 0.0);
         planByDate[dk]!['shifts']!.add(shift);
         planByDate[dk]!['leaveTypes']!.add(type);
 
-        deductionItems.add({
-          'shift': shift,
-          'leaveType': type,
-          'compHours': useComp ? compHours / days : 0,
-        });
-
+        deductionItems.add({'shift': shift, 'leaveType': type, 'compHours': useComp ? compHours : 0.0});
         used++;
       }
-    }
 
-    if (planByDate.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('無效嘅請假申請')),
-      );
-      return;
-    }
-
-    double totalCompUsed = 0;
-    double totalALDays = 0;
-    double totalCLDays = 0;
-    double totalSLDays = 0;
-    double totalCompOverflow = 0;
-
-    for (final item in deductionItems) {
-      final workHoursPerDay = getWorkHoursForShift(item['shift']);
-      final totalHoursNeeded = workHoursPerDay * 1;
-      final compRequested = item['compHours'];
-
-      if (compRequested > totalHoursNeeded) {
-        totalCompOverflow += (compRequested - totalHoursNeeded);
+      if (planByDate.isEmpty) {
+        _showError('無效請假（可能係休息日）');
+        setState(() => _isSaving[row] = false);
+        return;
       }
 
-      final calc = calculateDeduction(
-        shift: item['shift'],
-        requestedDays: 1,
-        compHoursUsed: item['compHours'],
-        leaveType: item['leaveType'],
-      );
-      totalCompUsed += calc['compUsed'];
-      totalALDays += calc['alDays'];
-      totalCLDays += calc['clDays'];
-      totalSLDays += calc['slDays'];
-    }
+      double totalCompUsed = 0, totalALDays = 0, totalCLDays = 0, totalSLDays = 0;
+      for (final item in deductionItems) {
+        final calc = calculateDeduction(
+          shift: item['shift'],
+          requestedDays: 1,
+          compHoursUsed: item['compHours'],
+          leaveType: item['leaveType'],
+        );
+        totalCompUsed += calc['compUsed'];
+        totalALDays += calc['alDays'];
+        totalCLDays += calc['clDays'];
+        totalSLDays += calc['slDays'];
+      }
 
-    // 補鐘溢位警告
-    if (totalCompOverflow > 0) {
-      final confirmOverflow = await showDialog<bool>(
+      // 詳細確認對話框
+      final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('⚠️ 補鐘溢位警告'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('你輸入嘅補鐘時數超出實際需要：'),
-              const SizedBox(height: 8),
-              Text(
-                '📊 超出時數：${totalCompOverflow.toStringAsFixed(1)} 小時',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
-              ),
-              const SizedBox(height: 8),
-              Text('⚠️ 超出嘅部分將唔會被扣減，亦唔會退還。'),
-              Text('💡 建議：補鐘時數唔應該超過當日工時。'),
-            ],
+          title: const Text('請假扣減確認'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('👤 員工: $name'),
+                Text('📅 日期: ${DateFormat('yyyy-MM-dd').format(widget.day)}'),
+                if (days > 1) Text('📆 共 $days 日'),
+                const Divider(),
+                if (useComp) ...[
+                  Text('💰 補鐘餘額: ${_compBalance.toStringAsFixed(1)} 小時'),
+                  Text('🔻 使用補鐘: ${totalCompUsed.toStringAsFixed(1)} 小時'),
+                  Text('📊 補鐘剩餘: ${(_compBalance - totalCompUsed).toStringAsFixed(1)} 小時'),
+                  const Divider(),
+                ],
+                if (totalALDays > 0)
+                  Text('🏖️ 將扣 AL: ${totalALDays.toStringAsFixed(1)} 日',
+                      style: const TextStyle(color: Colors.blue)),
+                if (totalCLDays > 0)
+                  Text('🏢 將扣 CL: ${totalCLDays.toStringAsFixed(1)} 日',
+                      style: const TextStyle(color: Colors.orange)),
+                if (totalSLDays > 0)
+                  Text('🤒 將扣 SL: ${totalSLDays.toStringAsFixed(1)} 日',
+                      style: const TextStyle(color: Colors.green)),
+                const SizedBox(height: 8),
+                Text('💡 長班 (LM/LN): AL=1.5日, CL=1日+0.5日AL',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              ],
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('返回修改')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-              child: const Text('繼續提交'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              child: const Text('確認請假'),
             ),
           ],
         ),
       );
-      if (confirmOverflow == false) return;
-    }
 
-    bool hasWarning = false;
-    if (_quota != null) {
-      final currentAL = (_quota!['al'] as num?)?.toDouble() ?? 0.0;
-      final currentCL = (_quota!['cl'] as num?)?.toDouble() ?? 0.0;
-      final currentSL = (_quota!['sl'] as num?)?.toDouble() ?? 0.0;
+      if (confirm != true) {
+        setState(() => _isSaving[row] = false);
+        return;
+      }
 
-      if (totalALDays > currentAL) hasWarning = true;
-      if (totalCLDays > currentCL) hasWarning = true;
-      if (totalSLDays > currentSL) hasWarning = true;
-    }
-
-    final bool? confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('請假扣減確認'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('👤 員工: ${widget.myName}'),
-              Text('📅 日期: ${DateFormat('yyyy-MM-dd').format(widget.day)}'),
-              const Divider(),
-              Text('💰 補鐘餘額: ${_compBalance.toStringAsFixed(1)} 小時'),
-              Text('🔻 使用補鐘: ${totalCompUsed.toStringAsFixed(1)} 小時'),
-              Text('📊 補鐘剩餘: ${(_compBalance - totalCompUsed).toStringAsFixed(1)} 小時'),
-              const Divider(),
-              if (totalALDays > 0)
-                Text('🏖️ 將扣 AL: ${totalALDays.toStringAsFixed(1)} 日',
-                    style: const TextStyle(color: Colors.blue)),
-              if (totalCLDays > 0)
-                Text('🏢 將扣 CL: ${totalCLDays.toStringAsFixed(1)} 日',
-                    style: const TextStyle(color: Colors.orange)),
-              if (totalSLDays > 0)
-                Text('🤒 將扣 SL: ${totalSLDays.toStringAsFixed(1)} 日',
-                    style: const TextStyle(color: Colors.green)),
-              if (hasWarning) ...[
-                const Divider(),
-                const Text('⚠️ 警告：假期配額可能不足，仍會繼續處理',
-                    style: TextStyle(color: Colors.red, fontSize: 12)),
-              ],
-              const SizedBox(height: 8),
-              Text(
-                '💡 長班 (LM/LN) AL = 1.5日，CL = 1日 + 剩餘轉AL',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-              Text(
-                '💡 病假 1日 = 8小時',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-              Text(
-                '💡 補鐘類型只扣補鐘，唔扣 AL/CL/SL',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('確認請假'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    // 扣減補鐘
-    if (totalCompUsed > 0) {
-      await CompensatoryTimeService.deductCompTime(_staffId, totalCompUsed);
-    }
-
-    // 扣減 AL/CL/SL
-    if (totalALDays > 0) {
-      await QuotaService.deductLeave(
-        staffId: _staffId,
-        leaveType: 'al',
-        days: totalALDays,
-        reason: '請假',
-      );
-    }
-    if (totalCLDays > 0) {
-      await QuotaService.deductLeave(
-        staffId: _staffId,
-        leaveType: 'cl',
-        days: totalCLDays,
-        reason: '請假',
-      );
-    }
-    if (totalSLDays > 0) {
-      await QuotaService.deductLeave(
-        staffId: _staffId,
-        leaveType: 'sl',
-        days: totalSLDays,
-        reason: '請假',
-      );
-    }
-
-    if (widget.onCancelMyPending != null) {
-      widget.onCancelMyPending!();
-    }
-
-    if (!mounted) return;
-
-    String deductMsg = '';
-    if (totalALDays > 0) deductMsg += 'AL ${totalALDays.toStringAsFixed(1)}日 ';
-    if (totalCLDays > 0) deductMsg += 'CL ${totalCLDays.toStringAsFixed(1)}日 ';
-    if (totalSLDays > 0) deductMsg += 'SL ${totalSLDays.toStringAsFixed(1)}日 ';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('✅ 已提交請假，扣減: $deductMsg'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    if (mounted) {
-      Navigator.of(context).pop(
-        LeaveEditDialogResult(isCancelled: false, planByDate: planByDate),
-      );
+      Navigator.of(context).pop(LeaveEditDialogResult(
+        isCancelled: false,
+        planByDate: planByDate,
+        deduction: {
+          'compUsed': totalCompUsed,
+          'alDays': totalALDays,
+          'clDays': totalCLDays,
+          'slDays': totalSLDays,
+          'name': name,
+        },
+      ));
+    } catch (e) {
+      _showError('錯誤: $e');
+      setState(() => _isSaving[row] = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final titleDate = DateFormat('yyyy/M/d').format(widget.day);
-    final titleText = '$titleDate - ${widget.shift}';
-
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -566,30 +374,8 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: Row(
-                children: [
-                  const Icon(Icons.event, color: Colors.blue),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      titleText,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '補鐘: ${_compBalance.toStringAsFixed(1)}h',
-                      style: TextStyle(fontSize: 12, color: Colors.teal.shade800),
-                    ),
-                  ),
-                ],
-              ),
+              padding: const EdgeInsets.all(12),
+              child: Text('${DateFormat('yyyy/M/d').format(widget.day)} - ${widget.shift}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
             const Divider(height: 1),
             Expanded(
@@ -597,14 +383,10 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   children: List.generate(rowCount, (i) {
-                    final isLast = i == rowCount - 1;
                     return Container(
-                      margin: EdgeInsets.only(bottom: isLast ? 4 : 12),
+                      margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
                       child: Column(
                         children: [
                           Row(
@@ -613,22 +395,17 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                 radius: 20,
                                 backgroundColor: Colors.blue,
                                 child: IconButton(
-                                  icon: const Icon(Icons.person, color: Colors.white),
+                                  icon: const Icon(Icons.person, color: Colors.white, size: 18),
                                   padding: EdgeInsets.zero,
-                                  onPressed: (widget.myName.isEmpty && widget.myNickname.isEmpty)
-                                      ? null
-                                      : () {
-                                    final toFill = widget.myName.isNotEmpty
-                                        ? widget.myName
-                                        : widget.myNickname;
+                                  onPressed: () {
+                                    final toFill = widget.myName.isNotEmpty ? widget.myName : widget.myNickname;
+                                    if (toFill.isEmpty) return;
                                     setState(() {
                                       nameCtrls[i].text = toFill;
-                                      nameCtrls[i].selection =
-                                          TextSelection.fromPosition(
-                                            TextPosition(offset: toFill.length),
-                                          );
+                                      nameCtrls[i].selection = TextSelection.fromPosition(
+                                        TextPosition(offset: toFill.length),
+                                      );
                                     });
-                                    focusRow(i, 1);
                                   },
                                 ),
                               ),
@@ -637,39 +414,18 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                                 child: TextField(
                                   controller: nameCtrls[i],
                                   focusNode: nameFocus[i],
-                                  textInputAction: TextInputAction.next,
-                                  decoration: const InputDecoration(
-                                    labelText: '姓名',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  onSubmitted: (_) => nextField(i, 0),
+                                  decoration: const InputDecoration(labelText: '姓名', isDense: true, border: OutlineInputBorder()),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               IconButton(
                                 icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () async {
-                                  if (widget.onCancelMyPending != null &&
-                                      nameCtrls[i].text.trim() == widget.myName) {
-                                    if (mounted) {
-                                      Navigator.of(context).pop(
-                                        LeaveEditDialogResult(
-                                          isCancelled: true,
-                                          planByDate: const {},
-                                        ),
-                                      );
-                                    }
-                                    if (widget.onCancelMyPending != null) {
-                                      widget.onCancelMyPending!();
-                                    }
-                                    return;
-                                  }
+                                onPressed: () {
                                   setState(() {
                                     nameCtrls[i].clear();
                                     reasonCtrls[i].clear();
                                     daysCtrls[i].text = '1';
-                                    compTimeCtrls[i].text = '0';
+                                    compTimeCtrls[i].text = '0.0';
                                     useCompTime[i] = false;
                                   });
                                 },
@@ -680,111 +436,105 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                           Row(
                             children: [
                               SizedBox(
-                                width: 80,
+                                width: 100,
                                 child: DropdownButtonFormField<String>(
                                   value: typeSelected[i],
-                                  items: leaveTypes
-                                      .map((t) => DropdownMenuItem(
-                                    value: t,
-                                    child: Text(t),
-                                  ))
-                                      .toList(),
+                                  items: leaveTypes.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
                                     setState(() {
                                       typeSelected[i] = v;
-                                      switch (v) {
-                                        case 'AL':
-                                          reasonCtrls[i].text = 'AL';
-                                          break;
-                                        case 'CL':
-                                          reasonCtrls[i].text = 'CL';
-                                          break;
-                                        case 'SL':
-                                          reasonCtrls[i].text = 'SL';
-                                          break;
-                                        case 'TR':
-                                          reasonCtrls[i].text = 'Training';
-                                          break;
-                                        case '補鐘':
-                                          reasonCtrls[i].text = '補鐘';
-                                          break;
-                                      }
-                                      focusRow(i, 1);
+                                      if (v == 'AL') reasonCtrls[i].text = 'AL';
+                                      if (v == 'CL') reasonCtrls[i].text = 'CL';
+                                      if (v == 'SL') reasonCtrls[i].text = 'SL';
+                                      if (v == 'TR') reasonCtrls[i].text = 'Training';
+                                      if (v == '補鐘') reasonCtrls[i].text = '補鐘';
                                     });
                                   },
-                                  decoration: const InputDecoration(
-                                    labelText: '類型',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                  ),
+                                  decoration: const InputDecoration(labelText: '類型', isDense: true, border: OutlineInputBorder()),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
+                                flex: 3,
                                 child: TextField(
                                   controller: reasonCtrls[i],
                                   focusNode: reasonFocus[i],
-                                  textInputAction: TextInputAction.next,
-                                  decoration: const InputDecoration(
-                                    labelText: '原因',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  onSubmitted: (_) => nextField(i, 1),
+                                  decoration: const InputDecoration(labelText: '原因', isDense: true, border: OutlineInputBorder()),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               SizedBox(
-                                width: 64,
+                                width: 60,
                                 child: TextField(
                                   controller: daysCtrls[i],
                                   focusNode: daysFocus[i],
                                   keyboardType: TextInputType.number,
                                   textAlign: TextAlign.center,
-                                  decoration: const InputDecoration(
-                                    labelText: '日數',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  onSubmitted: (_) => nextField(i, 2),
+                                  decoration: const InputDecoration(labelText: '日數', isDense: true, border: OutlineInputBorder()),
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 8),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Checkbox(
                                 value: useCompTime[i],
                                 onChanged: (value) {
                                   setState(() {
                                     useCompTime[i] = value ?? false;
-                                    if (!useCompTime[i]) {
-                                      compTimeCtrls[i].text = '0';
-                                    }
+                                    if (!useCompTime[i]) compTimeCtrls[i].text = '0.0';
                                   });
                                 },
                               ),
                               const Text('用補鐘', style: TextStyle(fontSize: 12)),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: TextField(
-                                  controller: compTimeCtrls[i],
-                                  focusNode: compFocus[i],
-                                  keyboardType: TextInputType.number,
-                                  enabled: useCompTime[i],
-                                  decoration: InputDecoration(
-                                    labelText: '補鐘時數',
-                                    hintText: '最多 ${_compBalance.toStringAsFixed(1)}',
-                                    isDense: true,
-                                    border: const OutlineInputBorder(),
-                                    suffixText: '小時',
-                                  ),
-                                  onSubmitted: (_) => nextField(i, 3),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (useCompTime[i])
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: Text(
+                                          '當前補鐘餘額: ${_compBalance.toStringAsFixed(1)} 小時',
+                                          style: TextStyle(fontSize: 12, color: Colors.green.shade700, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    TextField(
+                                      controller: compTimeCtrls[i],
+                                      keyboardType: TextInputType.number,
+                                      enabled: useCompTime[i],
+                                      decoration: InputDecoration(
+                                        labelText: '補鐘時數',
+                                        hintText: '最多 ${_compBalance.toStringAsFixed(1)}',
+                                        isDense: true,
+                                        border: const OutlineInputBorder(),
+                                        suffixText: '小時',
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: _isSaving[i]
+                                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                  : const Icon(Icons.save, color: Colors.white),
+                              label: Text(_isSaving[i] ? '儲存中...' : '儲存此行'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _isSaving[i] ? Colors.grey : Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                              onPressed: _isSaving[i] ? null : () => _saveRow(i),
+                            ),
                           ),
                         ],
                       ),
@@ -801,29 +551,10 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                   Expanded(
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.close, color: Colors.red),
-                      label: const Text('取消', style: TextStyle(color: Colors.red)),
+                      label: const Text('關閉', style: TextStyle(color: Colors.red)),
                       onPressed: () {
-                        if (mounted) {
-                          Navigator.of(context).pop(
-                            LeaveEditDialogResult(
-                              isCancelled: true,
-                              planByDate: const {},
-                            ),
-                          );
-                        }
+                        if (mounted) Navigator.of(context).pop(LeaveEditDialogResult(isCancelled: true, planByDate: const {}));
                       },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.check_box, color: Colors.white),
-                      label: const Text('保存'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: _onSave,
                     ),
                   ),
                 ],

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../constants/constants.dart';
 import '../utils/auth_util.dart';
 import '../services/quota_service.dart';
@@ -17,7 +18,6 @@ class _MyLeavePageState extends State<MyLeavePage> {
   List<Map<String, dynamic>> _leaves = [];
   bool _loading = true;
 
-  // 假期配額
   Map<String, dynamic>? _quota;
   Stream<DocumentSnapshot>? _quotaStream;
   String _staffId = '';
@@ -31,9 +31,7 @@ class _MyLeavePageState extends State<MyLeavePage> {
   Future<void> _initData() async {
     _staffId = await AuthUtil.getStaffId();
     if (_staffId.isNotEmpty) {
-      // 訂閱配額變化（實時更新）
       _quotaStream = QuotaService.streamQuota(_staffId);
-      // 確保有配額記錄
       await QuotaService.getOrCreateQuota(_staffId);
     }
     await _loadMyLeaves();
@@ -63,6 +61,7 @@ class _MyLeavePageState extends State<MyLeavePage> {
       final names = List<String>.from(data['names'] ?? []);
       final reasons = List<String>.from(data['reasons'] ?? []);
       final staffIds = List<String>.from(data['staffIds'] ?? []);
+      final compHoursList = (data['compHours'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList() ?? [];
 
       final rawShift = data['shift'] as String? ?? '';
       final String shiftValue = rawShift.trim().isEmpty
@@ -74,14 +73,18 @@ class _MyLeavePageState extends State<MyLeavePage> {
 
       final myIndex = staffIds.indexOf(staffId);
       if (myIndex >= 0 && myIndex < names.length && date != null) {
+        final leaveType = reasons[myIndex].split('-').first;
+        final compHoursUsed = myIndex < compHoursList.length ? compHoursList[myIndex] : 0.0;
+
         leaves.add({
           'id': doc.id,
           'date': date,
-          'leaveType': reasons[myIndex].split('-').first,
+          'leaveType': leaveType,
           'reason': reasons[myIndex],
           'days': data['days'] ?? 1,
           'status': data['status'] ?? 'pending',
           'shift': shiftValue,
+          'compHours': compHoursUsed,
         });
       }
     }
@@ -91,10 +94,27 @@ class _MyLeavePageState extends State<MyLeavePage> {
     });
   }
 
-  /// 顯示假期結算對話框
+  Future<void> _openBackupSheet(String team) async {
+    final url = BACKUP_SHEET_URLS[team];
+    if (url == null || url.contains('你的')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('尚未設定 Backup 連結，請聯絡管理員')),
+      );
+      return;
+    }
+
+    final Uri uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('無法開啟連結')),
+      );
+    }
+  }
+
   void _showBalanceDetail() {
     if (_quota == null) {
-      // 如果仲未 load 到，顯示 loading
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('正在載入假期資料...')),
       );
@@ -106,7 +126,6 @@ class _MyLeavePageState extends State<MyLeavePage> {
     final sl = (_quota!['sl'] as num?)?.toDouble() ?? 0.0;
     final compTime = (_quota!['compTime'] as num?)?.toDouble() ?? 0.0;
 
-    // 計算已用假期（從請假記錄）
     double usedAL = 0, usedCL = 0, usedSL = 0;
     for (final leave in _leaves) {
       if (leave['status'] == 'approved') {
@@ -197,7 +216,6 @@ class _MyLeavePageState extends State<MyLeavePage> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
-          // 顯示剩餘 AL（實時），點擊可開對話框
           if (_quotaStream != null)
             StreamBuilder<DocumentSnapshot>(
               stream: _quotaStream,
@@ -205,7 +223,6 @@ class _MyLeavePageState extends State<MyLeavePage> {
                 if (snapshot.hasData && snapshot.data!.exists) {
                   final data = snapshot.data!.data() as Map<String, dynamic>;
                   final al = (data['al'] as num?)?.toDouble() ?? 0.0;
-                  // 儲存配額以便對話框使用
                   if (_quota == null) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       setState(() {
@@ -218,7 +235,7 @@ class _MyLeavePageState extends State<MyLeavePage> {
                   return GestureDetector(
                     onTap: _showBalanceDetail,
                     child: Container(
-                      margin: const EdgeInsets.only(right: 16),
+                      margin: const EdgeInsets.only(right: 8),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.2),
@@ -240,6 +257,19 @@ class _MyLeavePageState extends State<MyLeavePage> {
                 return const SizedBox.shrink();
               },
             ),
+
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.table_chart),
+            tooltip: '查看 Backup 記錄',
+            onSelected: _openBackupSheet,
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'A', child: Row(children: [Icon(Icons.table_chart, color: Colors.blue), SizedBox(width: 12), Text('A 隊 Backup 記錄')])),
+              const PopupMenuItem(value: 'B', child: Row(children: [Icon(Icons.table_chart, color: Colors.green), SizedBox(width: 12), Text('B 隊 Backup 記錄')])),
+              const PopupMenuItem(value: 'C', child: Row(children: [Icon(Icons.table_chart, color: Colors.orange), SizedBox(width: 12), Text('C 隊 Backup 記錄')])),
+              const PopupMenuItem(value: 'D', child: Row(children: [Icon(Icons.table_chart, color: Colors.purple), SizedBox(width: 12), Text('D 隊 Backup 記錄')])),
+            ],
+          ),
+
           IconButton(
             icon: const Icon(Icons.calculate),
             onPressed: _showBalanceDetail,
@@ -263,6 +293,12 @@ class _MyLeavePageState extends State<MyLeavePage> {
 
           final bgColor = statusColor.withValues(alpha: 0.2);
 
+          // 構建顯示文字
+          String titleText = '${item['leaveType']} - ${item['days']}日';
+          if (item['compHours'] > 0) {
+            titleText = '${item['leaveType']} - ${item['days']}日 + ${item['compHours'].toStringAsFixed(1)}h 補鐘';
+          }
+
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: ListTile(
@@ -277,7 +313,7 @@ class _MyLeavePageState extends State<MyLeavePage> {
                   color: statusColor,
                 ),
               ),
-              title: Text('${item['leaveType']} - ${item['days']}日'),
+              title: Text(titleText),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
