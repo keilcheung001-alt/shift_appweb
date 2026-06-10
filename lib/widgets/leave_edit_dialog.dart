@@ -234,6 +234,9 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
     setState(() => _isSaving[row] = true);
 
     try {
+      // 🔥 關鍵：重新獲取最新補鐘餘額，避免使用過期數據
+      _compBalance = await QuotaService.getCompBalance(_staffId);
+
       final name = nameCtrls[row].text.trim();
       final reason = reasonCtrls[row].text.trim();
       final type = typeSelected[row];
@@ -419,13 +422,22 @@ class LeaveEditDialogState extends State<LeaveEditDialog> {
                   Text('💰 扣補鐘: ${totalCompUsed.toStringAsFixed(1)} 小時',
                       style: const TextStyle(color: Colors.purple)),
                 if (totalALHours > 0)
-                  Text('🏖️ 扣 AL: ${totalALHours.toStringAsFixed(1)} 小時',
+                  useHours
+                      ? Text('🏖️ 扣 AL: ${totalALHours.toStringAsFixed(1)} 小時',
+                      style: const TextStyle(color: Colors.blue))
+                      : Text('🏖️ 扣 AL: ${(totalALHours / 8).toStringAsFixed(3)} 日',
                       style: const TextStyle(color: Colors.blue)),
                 if (totalCLHours > 0)
-                  Text('🏢 扣 CL: ${totalCLHours.toStringAsFixed(1)} 小時',
+                  useHours
+                      ? Text('🏢 扣 CL: ${totalCLHours.toStringAsFixed(1)} 小時',
+                      style: const TextStyle(color: Colors.orange))
+                      : Text('🏢 扣 CL: ${(totalCLHours / 8).toStringAsFixed(3)} 日',
                       style: const TextStyle(color: Colors.orange)),
                 if (totalSLHours > 0)
-                  Text('🤒 扣 SL: ${totalSLHours.toStringAsFixed(1)} 小時',
+                  useHours
+                      ? Text('🤒 扣 SL: ${totalSLHours.toStringAsFixed(1)} 小時',
+                      style: const TextStyle(color: Colors.green))
+                      : Text('🤒 扣 SL: ${(totalSLHours / 8).toStringAsFixed(3)} 日',
                       style: const TextStyle(color: Colors.green)),
                 const SizedBox(height: 8),
                 if (isSpecial)

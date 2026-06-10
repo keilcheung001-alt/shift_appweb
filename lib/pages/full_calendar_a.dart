@@ -521,37 +521,36 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
 
     if (result == null || result.isCancelled) return;
 
-    // ✅ 先處理扣減（只扣減自己的假期）
+    // ✅ 已修正：讀取正確的 hours 並轉換為日數
     final deduction = result.deduction;
     if (deduction != null) {
       final compUsed = deduction['compUsed'] as double? ?? 0;
-      final alDays = deduction['alDays'] as double? ?? 0;
-      final clDays = deduction['clDays'] as double? ?? 0;
-      final slDays = deduction['slDays'] as double? ?? 0;
+      final alHours = deduction['alHours'] as double? ?? 0;   // 改 key
+      final clHours = deduction['clHours'] as double? ?? 0;
+      final slHours = deduction['slHours'] as double? ?? 0;
       final personName = deduction['name'] as String? ?? '';
 
-      // 只扣減自己（myName）嘅假期
       if (personName == myName && myEmployeeId.isNotEmpty) {
         if (compUsed > 0) {
           await QuotaService.deductCompTime(staffId: myEmployeeId, hours: compUsed);
           debugPrint('✅ 扣減補鐘: $compUsed 小時');
         }
-        if (alDays > 0) {
-          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'al', days: alDays, reason: '請假');
-          debugPrint('✅ 扣減 AL: $alDays 日');
+        if (alHours > 0) {
+          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'al', days: alHours / 8.0, reason: '請假');
+          debugPrint('✅ 扣減 AL: ${alHours / 8.0} 日');
         }
-        if (clDays > 0) {
-          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'cl', days: clDays, reason: '請假');
-          debugPrint('✅ 扣減 CL: $clDays 日');
+        if (clHours > 0) {
+          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'cl', days: clHours / 8.0, reason: '請假');
+          debugPrint('✅ 扣減 CL: ${clHours / 8.0} 日');
         }
-        if (slDays > 0) {
-          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'sl', days: slDays, reason: '請假');
-          debugPrint('✅ 扣減 SL: $slDays 日');
+        if (slHours > 0) {
+          await QuotaService.deductLeave(staffId: myEmployeeId, leaveType: 'sl', days: slHours / 8.0, reason: '請假');
+          debugPrint('✅ 扣減 SL: ${slHours / 8.0} 日');
         }
       }
     }
 
-    // 然後儲存 Firestore
+    // 然後儲存 Firestore（原本部分不變）
     final col = FirebaseFirestore.instance.collection(leaveCollection);
     for (final entry in result.planByDate.entries) {
       final dateKeyStr = entry.key;
@@ -655,15 +654,6 @@ class _FullCalendarATeamState extends State<FullCalendarATeam> {
           SetOptions(merge: true),
         );
       });
-
-      // 上傳到 Google Sheets
-      for (int i = 0; i < newNames.length; i++) {
-        final person = newNames[i];
-        if (person.isEmpty) continue;
-        final reason = i < newReasons.length ? newReasons[i] : '';
-        final bool isSelf = person == myName;
-
-      }
     }
 
     await subscribeLeavesForVisibleRange();

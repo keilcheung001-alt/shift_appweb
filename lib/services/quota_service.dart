@@ -5,6 +5,15 @@ import 'package:flutter/foundation.dart';
 class QuotaService {
   static const String collectionName = 'user_quotas';
 
+  // 🔥 強制轉型 helper，解決類型不匹配問題
+  static double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is int) return value.toDouble();
+    if (value is double) return value;
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
   static Future<Map<String, dynamic>> getOrCreateQuota(
       String staffId, {
         String? name,
@@ -66,8 +75,8 @@ class QuotaService {
     final Map<String, dynamic> updates = {};
 
     if (now.year > lastYear && now.month == 1 && now.day == 1) {
-      updates['al'] = (currentData['al'] as num?)?.toDouble() ?? 0.0 + 15.0;
-      updates['cl'] = (currentData['cl'] as num?)?.toDouble() ?? 0.0 + 17.0;
+      updates['al'] = _toDouble(currentData['al']) + 15.0;
+      updates['cl'] = _toDouble(currentData['cl']) + 17.0;
       updates['lastUpdatedYear'] = now.year;
       debugPrint('📅 年度更新: $staffId  AL+15, CL+17');
     }
@@ -75,7 +84,7 @@ class QuotaService {
     if (now.year > lastYear || now.month > lastMonth) {
       final monthsPassed = (now.year - lastYear) * 12 + (now.month - lastMonth);
       if (monthsPassed > 0) {
-        double currentSL = (currentData['sl'] as num?)?.toDouble() ?? 0.0;
+        double currentSL = _toDouble(currentData['sl']);
         double newSL = currentSL + (monthsPassed * 4.0);
         if (newSL > 120.0) newSL = 120.0;
         updates['sl'] = newSL;
@@ -104,7 +113,7 @@ class QuotaService {
     try {
       final doc = await FirebaseFirestore.instance.collection(collectionName).doc(staffId).get();
       if (doc.exists) {
-        return (doc.data()?['compTime'] as num?)?.toDouble() ?? 0.0;
+        return _toDouble(doc.data()?['compTime']);
       }
       return 0.0;
     } catch (e) {
@@ -126,7 +135,7 @@ class QuotaService {
     }
   }
 
-  // ✅ 扣減假期：CL 直接扣 days，唔再轉乘 0.1
+  // ✅ 扣減假期：加入型別安全及錯誤打印
   static Future<bool> deductLeave({
     required String staffId,
     required String leaveType,
@@ -135,42 +144,41 @@ class QuotaService {
   }) async {
     try {
       final docRef = FirebaseFirestore.instance.collection(collectionName).doc(staffId);
-
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final doc = await transaction.get(docRef);
-
         if (!doc.exists) {
           final defaultQuota = _getDefaultQuota();
-          final newValue = (defaultQuota[leaveType] as num).toDouble() - days;
+          final newValue = _toDouble(defaultQuota[leaveType]) - days;
           transaction.set(docRef, {
             'staffId': staffId,
             'al': leaveType == 'al' ? newValue : defaultQuota['al'],
             'cl': leaveType == 'cl' ? newValue : defaultQuota['cl'],
             'sl': leaveType == 'sl' ? newValue : defaultQuota['sl'],
             'compTime': 0.0,
-            'year': DateTime.now().year,
-            'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-        } else {
-          final currentValue = (doc.data()?[leaveType] as num?)?.toDouble() ?? 0.0;
-          final newValue = currentValue - days;
-          transaction.update(docRef, {
-            leaveType: newValue < 0 ? 0 : newValue,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+          return;
         }
+        final data = doc.data() as Map<String, dynamic>;
+        final currentValue = _toDouble(data[leaveType]);
+        final newValue = currentValue - days;
+        if (newValue < 0) {
+          throw Exception('Insufficient $leaveType balance: $currentValue < $days');
+        }
+        transaction.update(docRef, {
+          leaveType: newValue,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
-
       debugPrint('✅ 扣減假期: $staffId $leaveType -$days 日');
       return true;
     } catch (e) {
-      debugPrint('扣減假期失敗: $e');
+      debugPrint('❌ 扣減假期失敗: $e');
       return false;
     }
   }
 
-  // ✅ 退回假期：CL 直接加 days，唔再轉乘 0.1
+  // ✅ 退回假期
   static Future<bool> addLeave({
     required String staffId,
     required String leaveType,
@@ -179,31 +187,28 @@ class QuotaService {
   }) async {
     try {
       final docRef = FirebaseFirestore.instance.collection(collectionName).doc(staffId);
-
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final doc = await transaction.get(docRef);
-
         if (!doc.exists) {
           final defaultQuota = _getDefaultQuota();
-          final newValue = (defaultQuota[leaveType] as num).toDouble() + days;
+          final newValue = _toDouble(defaultQuota[leaveType]) + days;
           transaction.set(docRef, {
             'staffId': staffId,
             'al': leaveType == 'al' ? newValue : defaultQuota['al'],
             'cl': leaveType == 'cl' ? newValue : defaultQuota['cl'],
             'sl': leaveType == 'sl' ? newValue : defaultQuota['sl'],
             'compTime': 0.0,
-            'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-        } else {
-          final currentValue = (doc.data()?[leaveType] as num?)?.toDouble() ?? 0.0;
-          transaction.update(docRef, {
-            leaveType: currentValue + days,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+          return;
         }
+        final data = doc.data() as Map<String, dynamic>;
+        final currentValue = _toDouble(data[leaveType]);
+        transaction.update(docRef, {
+          leaveType: currentValue + days,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
-
       debugPrint('✅ 退回假期: $staffId $leaveType +$days 日');
       return true;
     } catch (e) {
@@ -219,10 +224,8 @@ class QuotaService {
   }) async {
     try {
       final docRef = FirebaseFirestore.instance.collection(collectionName).doc(staffId);
-
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final doc = await transaction.get(docRef);
-
         if (!doc.exists) {
           final defaultQuota = _getDefaultQuota();
           transaction.set(docRef, {
@@ -231,18 +234,17 @@ class QuotaService {
             'cl': defaultQuota['cl'],
             'sl': defaultQuota['sl'],
             'compTime': hours,
-            'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-        } else {
-          final currentComp = (doc.data()?['compTime'] as num?)?.toDouble() ?? 0.0;
-          transaction.update(docRef, {
-            'compTime': currentComp + hours,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+          return;
         }
+        final data = doc.data() as Map<String, dynamic>;
+        final currentComp = _toDouble(data['compTime']);
+        transaction.update(docRef, {
+          'compTime': currentComp + hours,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
-
       debugPrint('✅ 增加補鐘: $staffId +$hours 小時');
       return true;
     } catch (e) {
@@ -257,10 +259,8 @@ class QuotaService {
   }) async {
     try {
       final docRef = FirebaseFirestore.instance.collection(collectionName).doc(staffId);
-
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final doc = await transaction.get(docRef);
-
         if (!doc.exists) {
           final defaultQuota = _getDefaultQuota();
           transaction.set(docRef, {
@@ -269,19 +269,21 @@ class QuotaService {
             'cl': defaultQuota['cl'],
             'sl': defaultQuota['sl'],
             'compTime': -hours,
-            'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-        } else {
-          final currentComp = (doc.data()?['compTime'] as num?)?.toDouble() ?? 0.0;
-          final newComp = currentComp - hours;
-          transaction.update(docRef, {
-            'compTime': newComp < 0 ? 0 : newComp,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+          return;
         }
+        final data = doc.data() as Map<String, dynamic>;
+        final currentComp = _toDouble(data['compTime']);
+        final newComp = currentComp - hours;
+        if (newComp < 0) {
+          throw Exception('Insufficient comp time balance');
+        }
+        transaction.update(docRef, {
+          'compTime': newComp,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
-
       debugPrint('✅ 扣減補鐘: $staffId -$hours 小時');
       return true;
     } catch (e) {

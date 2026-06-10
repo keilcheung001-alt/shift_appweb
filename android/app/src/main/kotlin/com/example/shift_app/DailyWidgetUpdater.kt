@@ -11,7 +11,7 @@ import android.os.Build
 
 class DailyWidgetUpdater : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // 只係更新 widget，唔會影響鬧鐘
+        // 更新所有 Widget
         val manager = AppWidgetManager.getInstance(context)
         val providers = listOf(
             MyAppWidgetProviderA::class.java,
@@ -34,6 +34,9 @@ class DailyWidgetUpdater : BroadcastReceiver() {
                 context.sendBroadcast(updateIntent)
             }
         }
+
+        // ✅ 唯一改動：做完更新之後，重新排程下一次（聽日凌晨2點）
+        schedule(context)
     }
 
     companion object {
