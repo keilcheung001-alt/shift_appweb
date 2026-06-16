@@ -24,21 +24,28 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
     final prefs = await SharedPreferences.getInstance();
     _currentStaffId = prefs.getString('staff_id') ?? '';
+    print('🔍 當前員工 ID: $_currentStaffId');
 
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('user_quotas')
           .orderBy('name')
           .get();
+      print('✅ 成功讀取 ${snapshot.docs.length} 筆員工資料');
       setState(() {
         _staffList = snapshot.docs;
         _loading = false;
         _error = '';
       });
-    } catch (e) {
+    } catch (e, stack) {
+      print('❌ 讀取員工資料失敗: $e');
+      print(stack);
       setState(() {
         _error = '讀取失敗: $e';
         _loading = false;
@@ -52,32 +59,37 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
     final yearStartStr = '${yearStart.year}-${yearStart.month.toString().padLeft(2, '0')}-${yearStart.day.toString().padLeft(2, '0')}';
     final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final collectionName = FIRESTORE_LEAVE_COLLECTIONS[team] ?? 'a_team_leave';
-    final querySnapshot = await FirebaseFirestore.instance
-        .collection(collectionName)
-        .where('dateKey', isGreaterThanOrEqualTo: yearStartStr)
-        .where('dateKey', isLessThanOrEqualTo: todayStr)
-        .get();
-    double usedAL = 0, usedCL = 0, usedSL = 0, usedComp = 0;
-    for (final doc in querySnapshot.docs) {
-      final data = doc.data();
-      final names = List<String>.from(data['names'] ?? []);
-      final staffIds = List<String>.from(data['staffIds'] ?? []);
-      final statuses = List<String>.from(data['statuses'] ?? []);
-      final alHoursList = (data['alHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      final clHoursList = (data['clHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      final slHoursList = (data['slHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      final compHoursList = (data['compHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      int idx = staffIds.indexOf(staffId);
-      if (idx == -1) idx = names.indexOf(staffId);
-      if (idx == -1) continue;
-      final status = idx < statuses.length ? statuses[idx] : 'pending';
-      if (status != 'approved') continue;
-      if (idx < alHoursList.length) usedAL += alHoursList[idx] / 8.0;
-      if (idx < clHoursList.length) usedCL += clHoursList[idx] / 8.0;
-      if (idx < slHoursList.length) usedSL += slHoursList[idx] / 8.0;
-      if (idx < compHoursList.length) usedComp += compHoursList[idx];
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection(collectionName)
+          .where('dateKey', isGreaterThanOrEqualTo: yearStartStr)
+          .where('dateKey', isLessThanOrEqualTo: todayStr)
+          .get();
+      double usedAL = 0, usedCL = 0, usedSL = 0, usedComp = 0;
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final names = List<String>.from(data['names'] ?? []);
+        final staffIds = List<String>.from(data['staffIds'] ?? []);
+        final statuses = List<String>.from(data['statuses'] ?? []);
+        final alHoursList = (data['alHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+        final clHoursList = (data['clHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+        final slHoursList = (data['slHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+        final compHoursList = (data['compHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+        int idx = staffIds.indexOf(staffId);
+        if (idx == -1) idx = names.indexOf(staffId);
+        if (idx == -1) continue;
+        final status = idx < statuses.length ? statuses[idx] : 'pending';
+        if (status != 'approved') continue;
+        if (idx < alHoursList.length) usedAL += alHoursList[idx] / 8.0;
+        if (idx < clHoursList.length) usedCL += clHoursList[idx] / 8.0;
+        if (idx < slHoursList.length) usedSL += slHoursList[idx] / 8.0;
+        if (idx < compHoursList.length) usedComp += compHoursList[idx];
+      }
+      return {'al': usedAL, 'cl': usedCL, 'sl': usedSL, 'comp': usedComp};
+    } catch (e) {
+      print('獲取已用假期失敗: $e');
+      return {'al': 0.0, 'cl': 0.0, 'sl': 0.0, 'comp': 0.0};
     }
-    return {'al': usedAL, 'cl': usedCL, 'sl': usedSL, 'comp': usedComp};
   }
 
   @override
@@ -97,14 +109,16 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error.isNotEmpty
-          ? Center(child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(_error, style: const TextStyle(color: Colors.red)),
-          const SizedBox(height: 16),
-          ElevatedButton(onPressed: _loadData, child: const Text('重試')),
-        ],
-      ))
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error, style: const TextStyle(color: Colors.red, fontSize: 16)),
+            const SizedBox(height: 16),
+            ElevatedButton(onPressed: _loadData, child: const Text('重試')),
+          ],
+        ),
+      )
           : _staffList.isEmpty
           ? const Center(child: Text('暫無員工資料'))
           : ListView.builder(
@@ -246,8 +260,7 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('✅ 已更新'), duration: Duration(seconds: 1)),
               );
-              // 重新載入資料
-              _loadData();
+              _loadData(); // 重新載入資料
             },
             child: const Text('儲存'),
           ),
