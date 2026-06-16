@@ -1,7 +1,7 @@
 // lib/pages/staff_quota_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../utils/auth_util.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/constants.dart';
 
 class StaffQuotaPage extends StatefulWidget {
@@ -12,180 +12,160 @@ class StaffQuotaPage extends StatefulWidget {
 }
 
 class _StaffQuotaPageState extends State<StaffQuotaPage> {
-  bool _isAdmin = true;   // 🔥 直接設為 true
   bool _loading = true;
+  List<QueryDocumentSnapshot> _staffList = [];
   String _currentStaffId = '';
-  String _currentTeam = '';
+  String _error = '';
 
   @override
   void initState() {
     super.initState();
-    _checkPermission();
+    _loadData();
   }
 
-  Future<void> _checkPermission() async {
-    // 不再檢查權限，直接管理員模式
-    _currentStaffId = await AuthUtil.getStaffId();
-    _currentTeam = (await AuthUtil.getHomeGroup()).toUpperCase();
-    if (_currentTeam.isEmpty) _currentTeam = 'A';
-    setState(() => _loading = false);
+  Future<void> _loadData() async {
+    setState(() => _loading = true);
+    final prefs = await SharedPreferences.getInstance();
+    _currentStaffId = prefs.getString('staff_id') ?? '';
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('user_quotas')
+          .orderBy('name')
+          .get();
+      setState(() {
+        _staffList = snapshot.docs;
+        _loading = false;
+        _error = '';
+      });
+    } catch (e) {
+      setState(() {
+        _error = '讀取失敗: $e';
+        _loading = false;
+      });
+    }
   }
 
-  /// 獲取指定員工本年已批准的請假天數 (AL/CL/SL) 及補鐘時數 (compUsed)
   Future<Map<String, double>> _fetchUsedLeaves(String staffId, String team) async {
     final now = DateTime.now();
     final yearStart = DateTime(now.year, 1, 1);
     final yearStartStr = '${yearStart.year}-${yearStart.month.toString().padLeft(2, '0')}-${yearStart.day.toString().padLeft(2, '0')}';
     final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-
     final collectionName = FIRESTORE_LEAVE_COLLECTIONS[team] ?? 'a_team_leave';
     final querySnapshot = await FirebaseFirestore.instance
         .collection(collectionName)
         .where('dateKey', isGreaterThanOrEqualTo: yearStartStr)
         .where('dateKey', isLessThanOrEqualTo: todayStr)
         .get();
-
-    double usedAL = 0.0;
-    double usedCL = 0.0;
-    double usedSL = 0.0;
-    double usedComp = 0.0;   // 小時
-
+    double usedAL = 0, usedCL = 0, usedSL = 0, usedComp = 0;
     for (final doc in querySnapshot.docs) {
       final data = doc.data();
       final names = List<String>.from(data['names'] ?? []);
       final staffIds = List<String>.from(data['staffIds'] ?? []);
       final statuses = List<String>.from(data['statuses'] ?? []);
-      final alHoursList = (data['alHours'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      final clHoursList = (data['clHours'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      final slHoursList = (data['slHours'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-      final compHoursList = (data['compHours'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList() ?? [];
-
-      int idx = -1;
-      if (_currentStaffId.isNotEmpty) {
-        idx = staffIds.indexOf(staffId);
-      }
-      if (idx == -1) {
-        idx = names.indexOf(staffId);
-      }
+      final alHoursList = (data['alHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+      final clHoursList = (data['clHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+      final slHoursList = (data['slHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+      final compHoursList = (data['compHours'] as List?)?.map((e) => (e as num).toDouble()).toList() ?? [];
+      int idx = staffIds.indexOf(staffId);
+      if (idx == -1) idx = names.indexOf(staffId);
       if (idx == -1) continue;
-
       final status = idx < statuses.length ? statuses[idx] : 'pending';
       if (status != 'approved') continue;
-
       if (idx < alHoursList.length) usedAL += alHoursList[idx] / 8.0;
       if (idx < clHoursList.length) usedCL += clHoursList[idx] / 8.0;
       if (idx < slHoursList.length) usedSL += slHoursList[idx] / 8.0;
       if (idx < compHoursList.length) usedComp += compHoursList[idx];
     }
-
-    return {
-      'al': usedAL,
-      'cl': usedCL,
-      'sl': usedSL,
-      'comp': usedComp,
-    };
+    return {'al': usedAL, 'cl': usedCL, 'sl': usedSL, 'comp': usedComp};
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('調整員工假期'),  // 固定標題
+        title: const Text('調整員工假期'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadData,
+          ),
+        ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('user_quotas')
-            .orderBy('name')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('錯誤: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final staffList = snapshot.data!.docs;
-          if (staffList.isEmpty) {
-            return const Center(child: Text('暫無員工資料'));
-          }
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error.isNotEmpty
+          ? Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(_error, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: 16),
+          ElevatedButton(onPressed: _loadData, child: const Text('重試')),
+        ],
+      ))
+          : _staffList.isEmpty
+          ? const Center(child: Text('暫無員工資料'))
+          : ListView.builder(
+        itemCount: _staffList.length,
+        itemBuilder: (context, index) {
+          final doc = _staffList[index];
+          final data = doc.data() as Map<String, dynamic>;
+          final staffId = doc.id;
+          final name = data['name'] ?? staffId;
+          final team = data['team'] ?? 'A';
+          final al = (data['al'] as num?)?.toDouble() ?? 0;
+          final cl = (data['cl'] as num?)?.toDouble() ?? 0;
+          final sl = (data['sl'] as num?)?.toDouble() ?? 0;
+          final compTime = (data['compTime'] as num?)?.toDouble() ?? 0;
+          final isSelf = (staffId == _currentStaffId);
 
-          return ListView.builder(
-            itemCount: staffList.length,
-            itemBuilder: (context, index) {
-              final doc = staffList[index];
-              final data = doc.data() as Map<String, dynamic>;
-              final staffId = doc.id;
-              final name = data['name'] ?? staffId;
-              final team = data['team'] ?? 'A';
-              final al = (data['al'] as num?)?.toDouble() ?? 0;
-              final cl = (data['cl'] as num?)?.toDouble() ?? 0;
-              final sl = (data['sl'] as num?)?.toDouble() ?? 0;
-              final compTime = (data['compTime'] as num?)?.toDouble() ?? 0;
-
-              final isSelf = (staffId == _currentStaffId);
-              return FutureBuilder<Map<String, double>>(
-                future: isSelf ? _fetchUsedLeaves(staffId, team) : Future.value(null),
-                builder: (context, usedSnapshot) {
-                  final usedData = usedSnapshot.data;
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    child: Column(
-                      children: [
-                        ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          leading: CircleAvatar(
-                            radius: 20,
-                            backgroundColor: Colors.teal.shade100,
-                            child: Text(
-                              name.substring(0, 1).toUpperCase(),
-                              style: TextStyle(color: Colors.teal.shade800, fontSize: 14),
-                            ),
-                          ),
-                          title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                          subtitle: Text('$staffId ｜ ${team}隊', style: const TextStyle(fontSize: 12)),
-                          trailing: Wrap(
-                            spacing: 4,
-                            runSpacing: 2,
-                            children: [
-                              _buildChip('AL', al, Colors.blue),
-                              _buildChip('CL', cl, Colors.orange),
-                              _buildChip('SL', sl, Colors.green),
-                              _buildChip('補鐘', compTime, Colors.purple, isHours: true),
-                            ],
-                          ),
-                          onTap: () => _showEditDialog(staffId, data),  // 直接編輯，無權限檢查
+          return FutureBuilder<Map<String, double>>(
+            future: isSelf ? _fetchUsedLeaves(staffId, team) : Future.value(null),
+            builder: (context, usedSnapshot) {
+              final usedData = usedSnapshot.data;
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                elevation: 2,
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.shade100,
+                        child: Text(
+                          name.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        if (isSelf && usedSnapshot.connectionState == ConnectionState.done && usedData != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8, left: 12, right: 12),
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 4,
-                              children: [
-                                _buildUsedChip('AL 本年已用', usedData['al']!, Colors.blue),
-                                _buildUsedChip('CL 本年已用', usedData['cl']!, Colors.orange),
-                                _buildUsedChip('SL 本年已用', usedData['sl']!, Colors.green),
-                                _buildUsedChip('補鐘 本年已用', usedData['comp']!, Colors.purple, isHours: true),
-                              ],
-                            ),
-                          ),
-                        if (isSelf && usedSnapshot.connectionState == ConnectionState.waiting)
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 8),
-                            child: SizedBox(height: 20, child: LinearProgressIndicator()),
-                          ),
-                      ],
+                      ),
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('$staffId ｜ ${team}隊'),
+                      trailing: Wrap(
+                        spacing: 4,
+                        children: [
+                          _buildChip('AL', al, Colors.blue),
+                          _buildChip('CL', cl, Colors.orange),
+                          _buildChip('SL', sl, Colors.green),
+                          _buildChip('補鐘', compTime, Colors.purple, isHours: true),
+                        ],
+                      ),
+                      onTap: () => _showEditDialog(staffId, data),
                     ),
-                  );
-                },
+                    if (isSelf && usedSnapshot.connectionState == ConnectionState.done && usedData != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
+                        child: Wrap(
+                          spacing: 8,
+                          children: [
+                            _buildUsedChip('AL 本年已用', usedData['al']!, Colors.blue),
+                            _buildUsedChip('CL 本年已用', usedData['cl']!, Colors.orange),
+                            _buildUsedChip('SL 本年已用', usedData['sl']!, Colors.green),
+                            _buildUsedChip('補鐘 本年已用', usedData['comp']!, Colors.purple, isHours: true),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               );
             },
           );
@@ -196,11 +176,8 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
 
   Widget _buildChip(String label, double value, Color color, {bool isHours = false}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
       child: Text(
         '$label: ${value.toStringAsFixed(0)}${isHours ? 'h' : ''}',
         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: color),
@@ -210,11 +187,8 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
 
   Widget _buildUsedChip(String label, double value, Color color, {bool isHours = false}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
       child: Text(
         '$label: ${value.toStringAsFixed(1)}${isHours ? ' 小時' : ' 日'}',
         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: color),
@@ -272,6 +246,8 @@ class _StaffQuotaPageState extends State<StaffQuotaPage> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('✅ 已更新'), duration: Duration(seconds: 1)),
               );
+              // 重新載入資料
+              _loadData();
             },
             child: const Text('儲存'),
           ),
