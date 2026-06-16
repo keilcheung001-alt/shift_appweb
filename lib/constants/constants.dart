@@ -128,10 +128,10 @@ const Map<String, String> APPS_SCRIPT_URLS = {
 };
 
 // ========== Google Sheets Backup 連結（俾人查閱記錄用）==========
-const String BACKUP_SHEET_A = 'https://docs.google.com/spreadsheets/d/1LtiT5eYWlbZDsNg76eb84yvCtnbXPCEGE4XLRpMciv8/edit';
-const String BACKUP_SHEET_B = 'https://docs.google.com/spreadsheets/d/1xs2D56WFEvxqpKpf-WSOdUy66v8sMA51jYL2-WKwQ_g/edit';
+const String BACKUP_SHEET_A = 'https://docs.google.com/spreadsheets/d/1xs2D56WFEvxqpKpf-WSOdUy66v8sMA51jYL2-WKwQ_g/edit';
+const String BACKUP_SHEET_B = 'https://docs.google.com/spreadsheets/d/1T3Nrebz8DMyEfgfh7jvAywHe7Cx_Jnm9QWC0t7xw-tg/edit';
 const String BACKUP_SHEET_C = 'https://docs.google.com/spreadsheets/d/1xg9ak1s-HXNRchw16RFmjLdI7VAvvMN2xTvyXJ_RBOI/edit';
-const String BACKUP_SHEET_D = 'https://docs.google.com/spreadsheets/d/1T3Nrebz8DMyEfgfh7jvAywHe7Cx_Jnm9QWC0t7xw-tg/edit';
+const String BACKUP_SHEET_D = 'https://docs.google.com/spreadsheets/d/1LtiT5eYWlbZDsNg76eb84yvCtnbXPCEGE4XLRpMciv8/edit';
 
 const Map<String, String> BACKUP_SHEET_URLS = {
   'A': BACKUP_SHEET_A,

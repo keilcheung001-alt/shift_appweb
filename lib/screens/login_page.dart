@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shift_app/constants/constants.dart';
 import 'package:shift_app/services/quota_service.dart';
+import 'package:shift_app/utils/auth_util.dart';  // 🔥 加入 AuthUtil
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -77,6 +78,9 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString(SPK_LOGIN_GROUP, selectedGroup);
     await prefs.setString(SPK_PERMISSION_CODE, roleCode);
     await prefs.setInt(SPK_LOGIN_TIMESTAMP, DateTime.now().millisecondsSinceEpoch);
+
+    // 🔥 強制觸發權限碼修復機制，確保權限碼不會丟失
+    await AuthUtil.getPermissionCode();
 
     // 自動建立或獲取員工假期戶口（傳入姓名和隊伍）
     final quota = await QuotaService.getOrCreateQuota(

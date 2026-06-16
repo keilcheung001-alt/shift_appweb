@@ -13,20 +13,17 @@ class AuthUtil {
   }
 
   static Future<bool> getCanFullEdit() async {
-    final prefs = await SharedPreferences.getInstance();
-    final code = (prefs.getString(SPK_PERMISSION_CODE) ?? '').trim().toUpperCase();
+    final code = await getPermissionCode();
     return code == PERMISSION_CODE_SUPER_ADMIN || code == PERMISSION_CODE_TEAM_LEAD;
   }
 
   static Future<bool> getIsSuperAdmin() async {
-    final prefs = await SharedPreferences.getInstance();
-    final code = (prefs.getString(SPK_PERMISSION_CODE) ?? '').trim().toUpperCase();
+    final code = await getPermissionCode();
     return code == PERMISSION_CODE_SUPER_ADMIN;
   }
 
   static Future<bool> getIsTeamLead() async {
-    final prefs = await SharedPreferences.getInstance();
-    final code = (prefs.getString(SPK_PERMISSION_CODE) ?? '').trim().toUpperCase();
+    final code = await getPermissionCode();
     return code == PERMISSION_CODE_TEAM_LEAD;
   }
 
@@ -62,7 +59,28 @@ class AuthUtil {
 
   static Future<String> getPermissionCode() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(SPK_PERMISSION_CODE) ?? '';
+    String? code = prefs.getString(SPK_PERMISSION_CODE);
+    if (code != null && code.isNotEmpty) {
+      return code;
+    }
+    return await _repairPermissionCode();
+  }
+
+  static Future<String> _repairPermissionCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final staffId = prefs.getString(SPK_STAFF_ID);
+    if (staffId != null && staffId.isNotEmpty) {
+      final upperStaffId = staffId.toUpperCase();
+      if (upperStaffId.endsWith('SM')) {
+        await prefs.setString(SPK_PERMISSION_CODE, PERMISSION_CODE_SUPER_ADMIN);
+        return PERMISSION_CODE_SUPER_ADMIN;
+      }
+      if (upperStaffId.endsWith('SR')) {
+        await prefs.setString(SPK_PERMISSION_CODE, PERMISSION_CODE_TEAM_LEAD);
+        return PERMISSION_CODE_TEAM_LEAD;
+      }
+    }
+    return '';
   }
 
   static Future<bool> isLoggedIn() async {
@@ -100,7 +118,6 @@ class AuthUtil {
   }
 
   static Future<bool> isSessionExpired() async {
-    // 取消自動登出
     return false;
   }
 }
