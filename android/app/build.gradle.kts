@@ -26,10 +26,13 @@ android {
 
     defaultConfig {
         applicationId = "com.example.shift_app"
+        // 🔥 改：由 flutter.minSdkVersion 改為固定 23
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 🔥 加：啟用 MultiDex（Firebase 方法數超過 65K 必須）
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -47,7 +50,12 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     add("coreLibraryDesugaring", "com.android.tools:desugar_jdk_libs:2.1.4")
-    // 強制確保 Firebase 核心庫已載入
-    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    // 🔥 改：Firebase BoM 由 32.7.0 改為 33.7.0
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    // 🔥 加：Firestore 依賴（你之前漏咗）
+    implementation("com.google.firebase:firebase-firestore")
+    // 🔥 加：Analytics（你原本有）
     implementation("com.google.firebase:firebase-analytics")
+    // 🔥 加：MultiDex 依賴
+    implementation("androidx.multidex:multidex:2.0.1")
 }
