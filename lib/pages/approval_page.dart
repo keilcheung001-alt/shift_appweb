@@ -86,8 +86,10 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
 
   // 取消申請相關
   late TabController _mainTabController;   // 用於主頁面兩個大 Tab: 請假核准, 取消申請
+  late TabController _cancelTeamTabController;  // 👈 取消申請嘅隊伍分頁
   List<PendingCancelItem> _pendingCancels = [];
-  Set<String> _selectedCancelIds = {};
+  final Map<String, List<PendingCancelItem>> _cancelItemsMap = {'A': [], 'B': [], 'C': [], 'D': []};
+  final Map<String, Set<String>> _cancelSelectedIdsMap = {'A': {}, 'B': {}, 'C': {}, 'D': {}};
   bool _isBatchCancelProcessing = false;
 
   @override
@@ -96,6 +98,8 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     _mainTabController = TabController(length: 2, vsync: this);
     _teamTabController = TabController(length: _allTeams.length, vsync: this);
     _teamTabController.addListener(_handleTeamTabChange);
+    _cancelTeamTabController = TabController(length: _allTeams.length, vsync: this);  // 👈 初始化
+    _cancelTeamTabController.addListener(_handleCancelTeamTabChange);
     _initializePage();
   }
 
@@ -103,12 +107,20 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
   void dispose() {
     _teamTabController.removeListener(_handleTeamTabChange);
     _teamTabController.dispose();
+    _cancelTeamTabController.removeListener(_handleCancelTeamTabChange);
+    _cancelTeamTabController.dispose();
     _mainTabController.dispose();
     super.dispose();
   }
 
   void _handleTeamTabChange() {
     if (_teamTabController.indexIsChanging) {
+      setState(() {});
+    }
+  }
+
+  void _handleCancelTeamTabChange() {
+    if (_cancelTeamTabController.indexIsChanging) {
       setState(() {});
     }
   }
@@ -138,11 +150,12 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     int initialIndex = _allTeams.indexOf(initialTeam);
     if (initialIndex != -1) {
       _teamTabController.index = initialIndex;
+      _cancelTeamTabController.index = initialIndex;  // 👈 同步取消分頁
     }
 
     if (mounted) setState(() => _loading = false);
     _loadAllTeamsPendingItems();
-    _loadPendingCancels();
+    _loadAllTeamsPendingCancels();
   }
 
   // ==================== 請假核准相關函數 ====================
@@ -404,8 +417,17 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
   }
 
   // ==================== 取消申請相關函數 ====================
-  Future<void> _loadPendingCancels() async {
-    final team = _currentCancelTeam;
+  void _loadAllTeamsPendingCancels() {
+    for (var team in _allTeams) {
+      _loadPendingCancelsForTeam(team);
+    }
+  }
+
+  String get _currentCancelTeam => _allTeams[_cancelTeamTabController.index];
+  List<PendingCancelItem> get _currentCancelItems => _cancelItemsMap[_currentCancelTeam] ?? [];
+  Set<String> get _currentCancelSelectedIds => _cancelSelectedIdsMap[_currentCancelTeam] ?? {};
+
+  Future<void> _loadPendingCancelsForTeam(String team) async {
     if (!_isSuperAdmin && team != _homeGroup) return;
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -428,38 +450,34 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         ));
       }
       setState(() {
-        _pendingCancels = items;
-        _selectedCancelIds.clear();
+        _cancelItemsMap[team] = items;
+        _cancelSelectedIdsMap[team]?.clear();
       });
     } catch (e) {
       debugPrint('載取消申請失敗: $e');
     }
   }
 
-  String _currentCancelTeam = 'A';
-  List<PendingCancelItem> get _currentCancelItems => _pendingCancels;
-  Set<String> get _currentSelectedCancelIds => _selectedCancelIds;
-
   void _toggleCancelSelection(String id) {
     setState(() {
-      if (_selectedCancelIds.contains(id)) _selectedCancelIds.remove(id);
-      else _selectedCancelIds.add(id);
+      if (_currentCancelSelectedIds.contains(id)) _currentCancelSelectedIds.remove(id);
+      else _currentCancelSelectedIds.add(id);
     });
   }
 
   void _toggleSelectAllCancel() {
     setState(() {
-      if (_selectedCancelIds.length == _pendingCancels.length && _pendingCancels.isNotEmpty) {
-        _selectedCancelIds.clear();
+      if (_currentCancelSelectedIds.length == _currentCancelItems.length && _currentCancelItems.isNotEmpty) {
+        _currentCancelSelectedIds.clear();
       } else {
-        _selectedCancelIds.clear();
-        for (var item in _pendingCancels) _selectedCancelIds.add(item.id);
+        _currentCancelSelectedIds.clear();
+        for (var item in _currentCancelItems) _currentCancelSelectedIds.add(item.id);
       }
     });
   }
 
   Future<void> _batchApproveCancel() async {
-    if (_selectedCancelIds.isEmpty) {
+    if (_currentCancelSelectedIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先選擇要批准的取消申請')));
       return;
     }
@@ -467,7 +485,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('批量批准取消假期'),
-        content: Text('確定批准所選的 ${_selectedCancelIds.length} 項取消申請？'),
+        content: Text('確定批准所選的 ${_currentCancelSelectedIds.length} 項取消申請？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('批准', style: TextStyle(color: Colors.green))),
@@ -476,13 +494,14 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     );
     if (confirm != true) return;
     setState(() => _isBatchCancelProcessing = true);
-    final ids = List<String>.from(_selectedCancelIds);
+    final ids = List<String>.from(_currentCancelSelectedIds);
+    final teamProcessing = _currentCancelTeam;
     try {
       for (final id in ids) {
-        final item = _pendingCancels.firstWhere((i) => i.id == id);
+        final item = _currentCancelItems.firstWhere((i) => i.id == id);
         await _approveCancelSingle(item);
       }
-      await _loadPendingCancels();
+      await _loadPendingCancelsForTeam(teamProcessing);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ 批量批准失敗: $e')));
     } finally {
@@ -555,17 +574,30 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
 
   Future<void> _rejectCancelSingle(PendingCancelItem item) async {
     try {
+      // 👇 拒絕時：改 pending_cancel_leaves 嘅 status 做 rejected
       await FirebaseFirestore.instance.collection('pending_cancel_leaves').doc(item.id).update({
         'status': 'rejected',
         'processedAt': FieldValue.serverTimestamp(),
       });
+
+      // 👇 順便將 Firestore 入面嘅 status 都改埋做 rejected，咁就唔會再見到
+      //    但其實取消申請本身係唔會改 leave 記錄嘅 status，只係改 pending_cancel_leaves
+      //    如果想完全清除，可以唔做任何嘢，因為 pending_cancel_leaves 入面 status 已改為 rejected
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已拒絕 ${item.name} 的取消申請'), backgroundColor: Colors.orange));
-        await _loadPendingCancels();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('❌ 已拒絕 ${item.name} 的取消申請'),
+          backgroundColor: Colors.red.shade700,
+        ));
+        // 重新載入取消列表（status 改咗做 rejected，唔會再 show）
+        await _loadPendingCancelsForTeam(item.team);
       }
     } catch (e) {
       debugPrint('拒絕取消失敗: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('操作失敗'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('操作失敗: $e'),
+        backgroundColor: Colors.red,
+      ));
     }
   }
 
@@ -595,7 +627,7 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
         controller: _mainTabController,
         children: [
           _buildLeaveApprovalTab(),
-          _buildCancelApprovalTab(),
+          _buildCancelApprovalTab(),  // 👈 改用 TabBar 版
         ],
       ),
     );
@@ -724,81 +756,109 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
     );
   }
 
-  // 取消申請審批頁面
+  // ==================== 取消申請審批頁面 (TabBar 版本) ====================
   Widget _buildCancelApprovalTab() {
-    final teamOptions = _isSuperAdmin ? _allTeams : [_homeGroup];
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(
-            children: [
-              const Text('隊伍:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(width: 8),
-              DropdownButton<String>(
-                value: _currentCancelTeam,
-                items: teamOptions.map((team) => DropdownMenuItem(value: team, child: Text('$team 隊'))).toList(),
-                onChanged: (newTeam) async {
-                  setState(() => _currentCancelTeam = newTeam!);
-                  await _loadPendingCancels();
-                },
-              ),
-              const Spacer(),
-              if (_selectedCancelIds.isNotEmpty)
-                ElevatedButton.icon(
-                  onPressed: _isBatchCancelProcessing ? null : _batchApproveCancel,
-                  icon: _isBatchCancelProcessing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.done_all),
-                  label: const Text('批量批准'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                ),
-              IconButton(icon: const Icon(Icons.refresh), onPressed: _loadPendingCancels),
-            ],
+        // 👇 隊伍分頁列（同請假核准一模一樣）
+        Container(
+          color: Colors.grey.shade100,
+          child: TabBar(
+            controller: _cancelTeamTabController,
+            isScrollable: true,
+            indicatorColor: Colors.orange,
+            labelColor: Colors.orange,
+            unselectedLabelColor: Colors.grey,
+            tabs: _allTeams.map((team) {
+              final count = _cancelItemsMap[team]?.length ?? 0;
+              return Tab(text: count > 0 ? '$team 隊 ($count)' : '$team 隊');
+            }).toList(),
           ),
         ),
-        Expanded(
-          child: _pendingCancels.isEmpty
-              ? const Center(child: Text('🎉 暫無取消申請'))
-              : ListView.builder(
-            itemCount: _pendingCancels.length,
-            itemBuilder: (ctx, i) {
-              final item = _pendingCancels[i];
-              final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                color: Colors.orange.shade50,
-                child: ListTile(
-                  leading: Checkbox(
-                    value: _selectedCancelIds.contains(item.id),
-                    onChanged: (_) => _toggleCancelSelection(item.id),
-                  ),
-                  title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('📅 日期: ${item.dateKey}'),
-                      Text('📝 原因: ${item.reason}'),
-                      const Text('⚠️ 申請取消已批核假期', style: TextStyle(color: Colors.red, fontSize: 12)),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const CircleAvatar(backgroundColor: Colors.green, radius: 16, child: Icon(Icons.check, color: Colors.white, size: 18)),
-                        onPressed: () async { await _approveCancelSingle(item); await _loadPendingCancels(); },
-                      ),
-                      IconButton(
-                        icon: const CircleAvatar(backgroundColor: Colors.red, radius: 16, child: Icon(Icons.close, color: Colors.white, size: 18)),
-                        onPressed: () async { await _rejectCancelSingle(item); await _loadPendingCancels(); },
-                      ),
-                    ],
-                  ),
+        // 👇 批量選擇欄（同請假核准一樣）
+        if (_currentCancelSelectedIds.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.orange.shade50,
+            child: Row(
+              children: [
+                Text('已選擇【$_currentCancelTeam 隊】${_currentCancelSelectedIds.length} 項', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: _isBatchCancelProcessing ? null : _batchApproveCancel,
+                  icon: _isBatchCancelProcessing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.done_all),
+                  label: Text(_isBatchCancelProcessing ? '處理中...' : '批量批准'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
                 ),
-              );
-            },
+              ],
+            ),
+          ),
+        Expanded(
+          child: TabBarView(
+            controller: _cancelTeamTabController,
+            children: _allTeams.map((team) => _buildCancelTeamListView(team)).toList(),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCancelTeamListView(String team) {
+    if (!_isSuperAdmin && team != _homeGroup) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [Icon(Icons.lock_outline, size: 48, color: Colors.grey), SizedBox(height: 8), Text('🔒 您只能查看所屬隊伍的取消申請', style: TextStyle(color: Colors.grey))],
+        ),
+      );
+    }
+    final items = _cancelItemsMap[team] ?? [];
+    final selectedIds = _cancelSelectedIdsMap[team] ?? {};
+    if (items.isEmpty) return const Center(child: Text('🎉 暫無取消申請'));
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (ctx, i) {
+        final item = items[i];
+        final displayName = item.nickname.isNotEmpty ? item.nickname : item.name;
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          color: Colors.orange.shade50,
+          child: ListTile(
+            leading: Checkbox(
+              value: selectedIds.contains(item.id),
+              onChanged: (_) => _toggleCancelSelection(item.id),
+            ),
+            title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('📅 日期: ${item.dateKey}'),
+                Text('📝 原因: ${item.reason}'),
+                const Text('⚠️ 申請取消已批核假期', style: TextStyle(color: Colors.red, fontSize: 12)),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const CircleAvatar(backgroundColor: Colors.green, radius: 16, child: Icon(Icons.check, color: Colors.white, size: 18)),
+                  onPressed: () async {
+                    await _approveCancelSingle(item);
+                    await _loadPendingCancelsForTeam(team);
+                  },
+                ),
+                IconButton(
+                  icon: const CircleAvatar(backgroundColor: Colors.red, radius: 16, child: Icon(Icons.close, color: Colors.white, size: 18)),
+                  onPressed: () async {
+                    await _rejectCancelSingle(item);
+                    // 已喺 _rejectCancelSingle 入面 reload
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -19,6 +19,7 @@ import 'full_calendar_a.dart';
 import 'full_calendar_b.dart';
 import 'full_calendar_c.dart';
 import 'full_calendar_d.dart';
+import 'holidays_page.dart';  // 👈 加入 HolidaysPage import
 
 class TeamMenuPage extends StatefulWidget {
   const TeamMenuPage({super.key});
@@ -200,7 +201,18 @@ class _TeamMenuPageState extends State<TeamMenuPage> {
         _buildMenuTile(Icons.cancel, 'Cancel Leave', () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CancelLeaveRequestPage())), Colors.red.shade100, Colors.red.shade900),
         _buildMenuTile(Icons.grid_view, 'Widgets & Alarms', () => Navigator.push(context, MaterialPageRoute(builder: (context) => const DesktopWidgetsPage())), Colors.orange.shade100, Colors.orange.shade900),
 
-        // Download ICS - 會彈出揀 team
+        // 👇 加入假期管理入口
+        _buildMenuTile(
+            Icons.calendar_today,
+            '假期管理',
+                () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HolidaysPage())
+            ),
+            Colors.pink.shade100,
+            Colors.pink.shade900
+        ),
+
         _buildMenuTile(Icons.file_download, 'Download ICS', _showTeamSelectionForICS, Colors.grey.shade200, Colors.black87),
 
         // 調整員工假期配額（管理員先見到）
